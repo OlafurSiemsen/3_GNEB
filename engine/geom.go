@@ -135,7 +135,7 @@ func InitGeomFromOVF(fname string) {
 	}
 
 	//set mesh from imported file, should refresh it by itself
-	SetMesh(arrDim[X], arrDim[Y], arrDim[Z],
+	SetMeshWrapped(arrDim[X], arrDim[Y], arrDim[Z],
 		step[X], step[Y], step[Z],
 		0, 0, 0)
 
