@@ -15,6 +15,7 @@ func init() { DeclLValue("m", &M, `Reduced magnetization (unit length)`) }
 // makes sure it's normalized etc.
 type magnetization struct {
 	buffer_ *data.Slice
+	n_images int
 }
 
 func (m *magnetization) Mesh() *data.Mesh    { return Mesh() }
