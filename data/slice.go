@@ -19,7 +19,9 @@ type Slice struct {
 	memType int8
 	// Keeps track of the number of GNEB images
 	// set to 1 for an empty slice, 1 for a slice with non-GNEB usage
-	n_images int
+	N_images int
+	// Used for pointer arithmetic for images
+	DataMemSize uintptr
 }
 
 // this package must not depend on CUDA. If CUDA is
@@ -124,14 +126,15 @@ func SliceFromPtrs(size [3]int, memType int8, ptrs []unsafe.Pointer, n_images_va
 	s := new(Slice)
 	s.ptrs = make([]unsafe.Pointer, nComp)
 	s.size = size
+	s.DataMemSize = unsafe.Sizeof(float32(0))
 	for c := range ptrs {
 		s.ptrs[c] = ptrs[c]
 	}
 	s.memType = memType
 	if n_images != 1 {
-		s.n_images = n_images
+		s.N_images = n_images
 	} else {
-		s.n_images = 1
+		s.N_images = 1
 	}
 	return s
 }
@@ -168,7 +171,7 @@ func (s *Slice) Disable() {
 	s.ptrs = s.ptrs[:0]
 	s.size = [3]int{0, 0, 0}
 	s.memType = 0
-	s.n_images = 1
+	s.N_images = 1
 }
 
 // value for Slice.memType
@@ -203,8 +206,8 @@ func (s *Slice) NComp() int {
 
 // Len returns the number of elements per component.
 func (s *Slice) Len() int {
-	if s.n_images != 1 {
-		return s.n_images * prod(s.size)
+	if s.N_images != 1 {
+		return s.N_images * prod(s.size)
 	} else {
 		return prod(s.size)
 	}
@@ -224,7 +227,7 @@ func (s *Slice) Comp(i int) *Slice {
 	sl.ptrs[0] = s.ptrs[i]
 	sl.size = s.size
 	sl.memType = s.memType
-	sl.n_images = s.n_images
+	sl.N_images = s.N_images
 	return sl
 }
 
@@ -262,7 +265,7 @@ func (s *Slice) Host() [][]float32 {
 
 // Returns a copy of the Slice, allocated on CPU.
 func (s *Slice) HostCopy() *Slice {
-	cpy := NewSlice(s.NComp(), s.Size(), s.n_images)
+	cpy := NewSlice(s.NComp(), s.Size(), s.N_images)
 	Copy(cpy, s)
 	return cpy
 }
@@ -381,7 +384,7 @@ func (s *Slice) Index(ix, iy, iz int, i_image_variadic ...int) int {
 	} else {
 		i_image = 0
 	}
-	return Index(s.Size(), ix, iy, iz, s.n_images, i_image)
+	return Index(s.Size(), ix, iy, iz, s.N_images, i_image)
 }
 
 func Index(size [3]int, ix, iy, iz int, image_param ...int) int {
@@ -397,4 +400,17 @@ func Index(size [3]int, ix, iy, iz int, image_param ...int) int {
 	}
 	return ((i_image*size[Z]+iz)*size[Y]+iy)*size[X] + ix
 	// i_image*(prod(size)) + (iz*size[Y]+iy)*size[X] + ix
+}
+
+func (i_slice *Slice) SubSlice(i_image int) *Slice {
+	NComp := len(i_slice.ptrs)
+	ptrs := make([]unsafe.Pointer, NComp)
+	physical_size := prod(i_slice.size)
+	for i := range NComp {
+		image_offset := int(i_slice.DataMemSize) * physical_size
+		ptrs[i] = unsafe.Pointer(uintptr(ptrs[i]) + uintptr(i_image*image_offset))
+		ptrs[i] = unsafe.Pointer(&(make([]float32, physical_size)[0]))
+	}
+	o_slice := SliceFromPtrs(i_slice.size, i_slice.memType, ptrs, 1)
+	return o_slice
 }

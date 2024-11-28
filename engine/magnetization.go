@@ -1,10 +1,11 @@
 package engine
 
 import (
+	"reflect"
+
 	"github.com/mumax/3/cuda"
 	"github.com/mumax/3/data"
 	"github.com/mumax/3/util"
-	"reflect"
 )
 
 var M magnetization // reduced magnetization (unit length)
@@ -14,7 +15,7 @@ func init() { DeclLValue("m", &M, `Reduced magnetization (unit length)`) }
 // Special buffered quantity to store magnetization
 // makes sure it's normalized etc.
 type magnetization struct {
-	buffer_ *data.Slice
+	buffer_  *data.Slice
 	n_images int
 }
 

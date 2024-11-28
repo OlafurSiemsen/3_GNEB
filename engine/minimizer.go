@@ -57,6 +57,11 @@ type Minimizer struct {
 func (mini *Minimizer) Step() {
 	m := M.Buffer()
 	size := m.Size()
+	n_images := m.N_images
+
+	if n_images != 1 {
+		// call minimizer on subslices representing the images
+	}
 
 	if mini.k == nil {
 		mini.k = cuda.Buffer(3, size)
