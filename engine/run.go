@@ -173,9 +173,16 @@ func RunWhile(condition func() bool) {
 	SanityCheck()
 	pause = false // may be set by <-Inject
 	const output = true
-	stepper.Free() // start from a clean state
-	runWhile(condition, output)
+	stored_buffer_ptr := M.buffer_
+	for i_image := range 1 { //M.buffer_.N_images {
+		i_image = i_image
+		// M.buffer_ = stored_buffer_ptr.SubSlice(i_image)
+		pause = false  // may be set by <-Inject
+		stepper.Free() // start from a clean state
+		runWhile(condition, output)
+	}
 	pause = true
+	M.buffer_ = stored_buffer_ptr
 }
 
 func runWhile(condition func() bool, output bool) {

@@ -26,7 +26,7 @@ func Mesh() *data.Mesh {
 
 func arg(msg string, test bool) {
 	if !test {
-		panic(UserErr(msg + ": illegal arugment"))
+		panic(UserErr(msg + ": illegal argument"))
 	}
 }
 
