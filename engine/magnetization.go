@@ -36,8 +36,13 @@ func (m *magnetization) normalize()              { cuda.Normalize(m.Buffer(), ge
 
 // allocate storage (not done by init, as mesh size may not yet be known then)
 func (m *magnetization) alloc() {
-	m.buffer_ = cuda.NewSlice(3, m.Mesh().Size())
+	m.buffer_ = cuda.NewSlice(3, m.Mesh().Size(), m.n_images)
 	m.Set(RandomMag()) // sane starting config
+}
+
+func (m *magnetization) Set_N_Images(n_images int) {
+	m.n_images = n_images
+	// m.buffer_.N_images = n_images
 }
 
 func (b *magnetization) SetArray(src *data.Slice) {
@@ -99,23 +104,28 @@ func (m *magnetization) SetInShape(region Shape, conf Config) {
 		region = universe
 	}
 	host := m.Buffer().HostCopy()
-	h := host.Vectors()
+	stored_host_ptr := host // We store a pointer to the original magnetization...
 	n := m.Mesh().Size()
-
-	for iz := 0; iz < n[Z]; iz++ {
-		for iy := 0; iy < n[Y]; iy++ {
-			for ix := 0; ix < n[X]; ix++ {
-				r := Index2Coord(ix, iy, iz)
-				x, y, z := r[X], r[Y], r[Z]
-				if region(x, y, z) { // inside
-					m := conf(x, y, z)
-					h[X][iz][iy][ix] = float32(m[X])
-					h[Y][iz][iy][ix] = float32(m[Y])
-					h[Z][iz][iy][ix] = float32(m[Z])
+	var h [3][][][]float32
+	for ii := 0; ii < m.n_images; ii++ {
+		host = stored_host_ptr.SubSlice(ii) // ...iterate over the images...
+		h = host.Vectors()
+		for iz := 0; iz < n[Z]; iz++ {
+			for iy := 0; iy < n[Y]; iy++ {
+				for ix := 0; ix < n[X]; ix++ {
+					r := Index2Coord(ix, iy, iz)
+					x, y, z := r[X], r[Y], r[Z]
+					if region(x, y, z) { // inside
+						m := conf(x, y, z)
+						h[X][iz][iy][ix] = float32(m[X])
+						h[Y][iz][iy][ix] = float32(m[Y])
+						h[Z][iz][iy][ix] = float32(m[Z])
+					}
 				}
 			}
 		}
 	}
+	host = stored_host_ptr // ...and then restore the original magnetization pointer
 	m.SetArray(host)
 }
 

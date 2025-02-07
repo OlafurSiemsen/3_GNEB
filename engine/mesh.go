@@ -33,13 +33,16 @@ func arg(msg string, test bool) {
 // Set the simulation mesh to Nx x Ny x Nz cells of given size.
 // Can be set only once at the beginning of the simulation.
 // TODO: dedup arguments from globals
-func SetMesh(Nx, Ny, Nz int, cellSizeX, cellSizeY, cellSizeZ float64, pbcx, pbcy, pbcz int) {
+func SetMesh(Nx, Ny, Nz int, cellSizeX, cellSizeY, cellSizeZ float64, pbcx, pbcy, pbcz int, n_images_variadic ...int) {
 	SetBusy(true)
 	defer SetBusy(false)
 
 	arg("GridSize", Nx > 0 && Ny > 0 && Nz > 0)
 	arg("CellSize", cellSizeX > 0 && cellSizeY > 0 && cellSizeZ > 0)
 	arg("PBC", pbcx >= 0 && pbcy >= 0 && pbcz >= 0)
+
+	n_images := data.ImageNumber(n_images_variadic)
+	M.Set_N_Images(n_images)
 
 	warnStr := "// WARNING: %s-axis is not 7-smooth. It has %d cells, with prime\n" +
 		"//          factors %v, at least one of which is greater than 7.\n" +

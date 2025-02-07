@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/mumax/3/cuda"
@@ -65,14 +66,25 @@ func SaveAs(q Quantity, fname string) {
 		fname = OD() + fname // don't clean, turns http:// in http:/
 	}
 
-	if path.Ext(fname) == "" {
-		fname += ("." + StringFromOutputFormat[outputFormat])
-	}
-	buffer := ValueOf(q) // TODO: check and optimize for Buffer()
-	defer cuda.Recycle(buffer)
+	t_buffer := ValueOf(q) // TODO: check and optimize for Buffer()
+	defer cuda.Recycle(t_buffer)
 	info := data.Meta{Time: Time, Name: NameOf(q), Unit: UnitOf(q), CellSize: MeshOf(q).CellSize()}
-	data := buffer.HostCopy() // must be copy (async io)
-	queOutput(func() { saveAs_sync(fname, data, info, outputFormat) })
+	t_data := t_buffer.HostCopy() // must be copy (async io)
+	if t_data.N_images > 1 {
+		for ii := 0; ii < t_data.N_images; ii++ {
+			t_fname := fname + "_img" + strconv.Itoa(ii)
+			if path.Ext(t_fname) == "" {
+				t_fname += ("." + StringFromOutputFormat[outputFormat])
+			}
+			queOutput(func() { saveAs_sync(t_fname, t_data.SubSlice(ii), info, outputFormat) })
+		}
+	} else {
+		if path.Ext(fname) == "" {
+			fname += ("." + StringFromOutputFormat[outputFormat])
+		}
+		queOutput(func() { saveAs_sync(fname, t_data, info, outputFormat) })
+	}
+
 }
 
 // Save image once, with auto file name

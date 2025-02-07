@@ -100,12 +100,7 @@ func torqueFn(dst *data.Slice) {
 
 // returns number of torque evaluations
 func getNEval() int {
-	return NEvalsge 1 { //M.buffer_.N_images {
-		i_image = i_image
-		// M.buffer_ = stored_buffer_ptr.SubSlice(i_image)
-		pause = false  // may be set by <-Inject
-		stepper.Free() // start from a clean state
-		runWhile(condition, outp
+	return NEvals
 }
 
 // update lastErr and peakErr
@@ -179,15 +174,15 @@ func RunWhile(condition func() bool) {
 	pause = false // may be set by <-Inject
 	const output = true
 	stored_buffer_ptr := M.buffer_
-	for i_image := range M.buffer_.N_images {
-		// 		i_image = i_image
+	for i_image := range M.buffer_.N_images { // M.n_images?
+		// i_image = i_image
 		M.buffer_ = stored_buffer_ptr.SubSlice(i_image)
 		pause = false  // may be set by <-Inject
 		stepper.Free() // start from a clean state
 		runWhile(condition, output)
 	}
-	pause = true
 	M.buffer_ = stored_buffer_ptr
+	pause = true
 }
 
 func runWhile(condition func() bool, output bool) {
