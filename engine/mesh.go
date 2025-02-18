@@ -17,6 +17,7 @@ func init() {
 	DeclFunc("SetMesh", SetMesh, `Sets GridSize, CellSize and PBC at the same time`)
 	DeclFunc("SetPBC", SetPBC, "Sets the number of repetitions in X,Y,Z to create periodic boundary "+
 		"conditions. The number of repetitions determines the cutoff range for the demagnetization.")
+	DeclFunc("SetNImages", SetNImages, "Sets the number of images to be used in minimum energy path calculations")
 }
 
 func Mesh() *data.Mesh {
@@ -41,9 +42,6 @@ func SetMesh(Nx, Ny, Nz int, cellSizeX, cellSizeY, cellSizeZ float64, pbcx, pbcy
 	arg("CellSize", cellSizeX > 0 && cellSizeY > 0 && cellSizeZ > 0)
 	arg("PBC", pbcx >= 0 && pbcy >= 0 && pbcz >= 0)
 
-	n_images := data.ImageNumber(n_images_variadic)
-	M.Set_N_Images(n_images)
-
 	warnStr := "// WARNING: %s-axis is not 7-smooth. It has %d cells, with prime\n" +
 		"//          factors %v, at least one of which is greater than 7.\n" +
 		"//          This may reduce performance or cause a CUDA_ERROR_INVALID_VALUE error." // Error is likely when the largest factor is >127
@@ -57,13 +55,17 @@ func SetMesh(Nx, Ny, Nz int, cellSizeX, cellSizeY, cellSizeZ float64, pbcx, pbcy
 		util.Log(fmt.Sprintf(warnStr, "z", Nz, factorsz))
 	}
 
+	n_images := data.ImageNumber(n_images_variadic)
+
 	sizeChanged := globalmesh_.Size() != [3]int{Nx, Ny, Nz}
 	cellSizeChanged := globalmesh_.CellSize() != [3]float64{cellSizeX, cellSizeY, cellSizeZ}
+	nimagesChanged := M.n_images != n_images
 	pbc := []int{pbcx, pbcy, pbcz}
 
 	if globalmesh_.Size() == [3]int{0, 0, 0} {
 		// first time mesh is set
 		globalmesh_ = *data.NewMesh(Nx, Ny, Nz, cellSizeX, cellSizeY, cellSizeZ, pbc...)
+		M.n_images = n_images
 		M.alloc()
 		regions.alloc()
 	} else {
@@ -94,10 +96,16 @@ func SetMesh(Nx, Ny, Nz int, cellSizeX, cellSizeY, cellSizeZ float64, pbcx, pbcy
 			B_therm.noise.Free()
 			B_therm.noise = nil
 		}
+
+		if nimagesChanged {
+			M.n_images = n_images
+			M.alloc()
+		}
 	}
 	lazy_gridsize = []int{Nx, Ny, Nz}
 	lazy_cellsize = []float64{cellSizeX, cellSizeY, cellSizeZ}
 	lazy_pbc = []int{pbcx, pbcy, pbcz}
+	lazy_n_images = n_images
 }
 
 func printf(f float64) float32 {
@@ -109,6 +117,7 @@ var (
 	lazy_gridsize []int
 	lazy_cellsize []float64
 	lazy_pbc      = []int{0, 0, 0}
+	lazy_n_images int
 )
 
 func SetGridSize(Nx, Ny, Nz int) {
@@ -122,6 +131,16 @@ func SetCellSize(cx, cy, cz float64) {
 	lazy_cellsize = []float64{cx, cy, cz}
 	if lazy_gridsize != nil {
 		SetMesh(lazy_gridsize[X], lazy_gridsize[Y], lazy_gridsize[Z], cx, cy, cz, lazy_pbc[X], lazy_pbc[Y], lazy_pbc[Z])
+	}
+}
+
+// Sets the number of images in the path to be minimized
+func SetNImages(n_images int) {
+	lazy_n_images = n_images
+	if lazy_gridsize != nil {
+		SetMesh(lazy_gridsize[X], lazy_gridsize[Y], lazy_gridsize[Z],
+			lazy_cellsize[X], lazy_cellsize[Y], lazy_cellsize[Z],
+			lazy_pbc[X], lazy_pbc[Y], lazy_pbc[Z], n_images)
 	}
 }
 

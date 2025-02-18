@@ -142,7 +142,7 @@ type flposition struct{}
 
 func (*flposition) Eval() interface{} { return fixedLayerPosition }
 func (*flposition) SetValue(v interface{}) {
-	drainOutput()
+	DrainOutput()
 	fixedLayerPosition = v.(FixedLayerPosition)
 }
 func (*flposition) Type() reflect.Type { return reflect.TypeOf(FixedLayerPosition(FIXEDLAYER_TOP)) }

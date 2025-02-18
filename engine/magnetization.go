@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"math"
 	"reflect"
 
 	"github.com/mumax/3/cuda"
@@ -58,10 +59,47 @@ func (m *magnetization) Set(c Config) {
 	m.SetInShape(nil, c)
 }
 
-func (m *magnetization) LoadFile(fname string) {
-	m.SetArray(LoadFile(fname))
+func (m *magnetization) LoadFile(fname string, ind_image_variadic ...int) {
+	if m.n_images == 1 { // Just the normal MuMax way
+		m.SetArray(LoadFile(fname))
+	} else { // Load to a specific image
+		ind_image := data.ImageIndex(ind_image_variadic)
+		data.Copy(m.buffer_.SubSlice(ind_image), LoadFile(fname)) // Is this slow?
+		// // More detailed assignment, in case the one liner fails
+		// stored_magnetization_ptr := m.buffer_ // We store a pointer to the original magnetization...
+		// m.buffer_ = stored_magnetization_ptr.SubSlice(ind_image)
+		// m.SetArray(LoadFile(fname))
+		// m.buffer_ = stored_magnetization_ptr //...and then restore the original magnetization pointer
+	}
 }
 
+func (m *magnetization) LoadFiles(fname ...string) {
+	n_files := len(fname)
+	var it_indeces []int
+	if n_files > m.n_images {
+		panic("Loading more images than there are in the path not supported (yet)")
+	} else {
+		it_indeces = SpreadIndex(n_files, m.n_images)
+	}
+	for ind_fname, ind_image := range it_indeces {
+		m.LoadFile(fname[ind_fname], ind_image)
+	}
+}
+
+// Returns a slice of length n with its members being equally(ish) spaced indeces in
+// the range [0, max_index], inclusive
+func SpreadIndex(n_indeces int, n_images int) []int {
+	max_index := n_images - 1
+	if n_indeces == 2 {
+		return []int{0, max_index}
+	}
+	o_indeces := make([]int, n_indeces)
+	interval := float64(max_index) / float64(n_indeces-1)
+	for it := 0; it < n_indeces; it++ {
+		o_indeces[it] = int(math.Round(float64(it) * interval))
+	}
+	return o_indeces
+}
 func (m *magnetization) Slice() (s *data.Slice, recycle bool) {
 	return m.Buffer(), false
 }

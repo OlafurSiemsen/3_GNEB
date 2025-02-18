@@ -50,7 +50,7 @@ func GetBusy() bool {
 
 // Cleanly exits the simulation, assuring all output is flushed.
 func Close() {
-	drainOutput()
+	DrainOutput()
 	LogUsedRefs()
 	Table.flush()
 	if logfile != nil {

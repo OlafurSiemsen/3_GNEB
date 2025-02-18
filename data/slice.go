@@ -392,9 +392,10 @@ func (s *Slice) SetScalar(ix, iy, iz int, v float64) {
 	s.Host()[0][s.Index(ix, iy, iz)] = float32(v)
 }
 
-func (s *Slice) Get(comp, ix, iy, iz int, i_image ...int) float64 {
+func (s *Slice) Get(comp, ix, iy, iz int, ind_image_variadic ...int) float64 {
 	s.checkComp(comp)
-	return float64(s.Host()[comp][s.Index(ix, iy, iz)])
+	ind_image := ImageIndex(ind_image_variadic)
+	return float64(s.Host()[comp][s.Index(ix, iy, iz, ind_image)])
 }
 
 func (s *Slice) checkComp(comp int) {
@@ -405,7 +406,6 @@ func (s *Slice) checkComp(comp int) {
 
 func (s *Slice) Index(ix, iy, iz int, ind_image_variadic ...int) int {
 	ind_image := ImageIndex(ind_image_variadic)
-
 	return Index(s.Size(), ix, iy, iz, s.N_images, ind_image)
 }
 

@@ -39,7 +39,7 @@ func AutoSnapshot(q Quantity, period float64) {
 }
 
 // register save(q) to be called every period
-func autoSave(q Quantity, period float64, save func(Quantity)) {
+func autoSave(q Quantity, period float64, save func(Quantity, ...int)) {
 	if period == 0 {
 		delete(output, q)
 	} else {
@@ -51,15 +51,15 @@ func autoSave(q Quantity, period float64, save func(Quantity)) {
 //
 //	m000001.ovf
 func autoFname(name string, format OutputFormat, num int) string {
-	return fmt.Sprintf(OD()+FilenameFormat+"."+StringFromOutputFormat[format], name, num)
+	return fmt.Sprintf(OD()+FilenameFormat+"."+SuffixFromOutputFormat[format], name, num)
 }
 
 // keeps info needed to decide when a quantity needs to be periodically saved
 type autosave struct {
-	period float64        // How often to save
-	start  float64        // Starting point
-	count  int            // Number of times it has been autosaved
-	save   func(Quantity) // called to do the actual save
+	period float64                // How often to save
+	start  float64                // Starting point
+	count  int                    // Number of times it has been autosaved
+	save   func(Quantity, ...int) // called to do the actual save
 }
 
 // returns true when the time is right to save.

@@ -1,10 +1,11 @@
 package engine
 
 import (
+	"time"
+
 	"github.com/mumax/3/cuda"
 	"github.com/mumax/3/timer"
 	"github.com/mumax/3/util"
-	"time"
 )
 
 // Asynchronous I/O queue flushes data to disk while simulation keeps running.
@@ -18,7 +19,7 @@ var (
 const maxOutputQueLen = 16 // number of outputs that can be queued for asynchronous I/O.
 
 func init() {
-	DeclFunc("Flush", drainOutput, "Flush all pending output to disk.")
+	DeclFunc("Flush", DrainOutput, "Flush all pending output to disk.")
 
 	saveQue = make(chan func())
 	go runSaver()
@@ -45,7 +46,7 @@ func runSaver() {
 
 // Finalizer function called upon program exit.
 // Waits until all asynchronous output has been saved.
-func drainOutput() {
+func DrainOutput() {
 	if saveQue == nil {
 		return
 	}
