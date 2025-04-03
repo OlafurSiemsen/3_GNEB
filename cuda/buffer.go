@@ -22,15 +22,17 @@ var (
 const buf_max = 100 // maximum number of buffers to allocate (detect memory leak early)
 
 // Returns a GPU slice for temporary use. To be returned to the pool with Recycle
-func Buffer(nComp int, size [3]int) *data.Slice {
+func Buffer(nComp int, size [3]int, n_images_variadic ...int) *data.Slice {
 	if Synchronous {
 		Sync()
 	}
 
+	n_images := data.ImageNumber(n_images_variadic)
+
 	ptrs := make([]unsafe.Pointer, nComp)
 
 	// re-use as many buffers as possible form our stack
-	N := prod(size)
+	N := prod(size) * n_images
 	pool := buf_pool[N]
 	nFromPool := iMin(nComp, len(pool))
 	for i := 0; i < nFromPool; i++ {
@@ -47,7 +49,7 @@ func Buffer(nComp int, size [3]int) *data.Slice {
 		buf_check[ptrs[i]] = struct{}{} // mark this pointer as mine
 	}
 
-	return data.SliceFromPtrs(size, data.GPUMemory, ptrs)
+	return data.SliceFromPtrs(size, data.GPUMemory, ptrs, n_images)
 }
 
 // Returns a buffer obtained from GetBuffer to the pool.

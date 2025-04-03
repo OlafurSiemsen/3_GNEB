@@ -10,6 +10,9 @@ import (
 )
 
 func resize(f *data.Slice, arg string) {
+	if f.N_images > 1 {
+		log.Fatal("Resize has not been implemented for multiple images")
+	}
 	s := parseSize(arg)
 	resized := data.Resample(f, s)
 	*f = *resized

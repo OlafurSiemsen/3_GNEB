@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mumax/3/cuda"
@@ -227,6 +228,101 @@ func rmln(a string) string {
 		a = a[:len(a)-1]
 	}
 	return a
+}
+
+// Prints a slice simply
+func PrintSlice(i_slice *data.Slice, preamble ...string) {
+	gridsize := i_slice.Size()
+	n_images := i_slice.N_images
+	host_slice := i_slice.HostCopy()
+	if len(preamble) != 0 {
+		fmt.Println(preamble)
+	} else {
+		fmt.Println("")
+	}
+	for iComp := 0; iComp < i_slice.NComp(); iComp++ {
+		for iIm := 0; iIm < n_images; iIm++ {
+			for iZ := 0; iZ < gridsize[2]; iZ++ {
+				for iY := 0; iY < gridsize[1]; iY++ {
+					for iX := 0; iX < gridsize[0]; iX++ {
+						fmt.Print(strconv.FormatFloat(host_slice.Get(iComp, iX, iY, iZ, iIm), 'f', 6, 32) + "	")
+					}
+				}
+			}
+		}
+		fmt.Print("\n")
+	}
+}
+
+// Prints a slice prettily
+func PrettyPrintSlice(i_slice *data.Slice) {
+	gridsize := i_slice.Size()
+	n_images := i_slice.N_images
+	host_slice := i_slice.HostCopy()
+	for iIm := 0; iIm < n_images; iIm++ {
+		fmt.Println("Image " + strconv.Itoa(iIm) + ":")
+		for iComp := 0; iComp < i_slice.NComp(); iComp++ {
+			fmt.Println("Comp " + strconv.Itoa(iComp) + ":")
+			for iZ := 0; iZ < gridsize[2]; iZ++ {
+				fmt.Println("Z " + strconv.Itoa(iZ) + ":")
+				for iY := 0; iY < gridsize[1]; iY++ {
+					fmt.Print("	")
+					for iX := 0; iX < gridsize[0]; iX++ {
+						fmt.Print(strconv.FormatFloat(host_slice.Get(iComp, iX, iY, iZ, iIm), 'f', 6, 32) + "	")
+					}
+					fmt.Print("\n")
+				}
+			}
+		}
+	}
+	fmt.Print("\n\n")
+}
+
+// Compares two slices, if print_only then it just prints the differences,
+// otherwise it panics when the first value that differs by more than
+// eps(float32) is encountered
+func CompareSlices(slice1 *data.Slice, slice2 *data.Slice, print_only bool) {
+	nComps := slice1.NComp()
+	gridsize := slice1.Size()
+	n_images := slice1.N_images
+	host_test_slice := slice1.HostCopy()
+	host_premade_slice := slice2.HostCopy()
+	tol := 1e-6
+	fmt.Println("Im,Comp,X,Y,Z: ")
+	for iIm := 0; iIm < n_images; iIm++ {
+		for iZ := 0; iZ < gridsize[2]; iZ++ {
+			for iY := 0; iY < gridsize[1]; iY++ {
+				for iX := 0; iX < gridsize[0]; iX++ {
+					for iComp := 0; iComp < nComps; iComp++ {
+						t_msg := strconv.Itoa(iIm) + "," +
+							strconv.Itoa(iComp) + "," +
+							strconv.Itoa(iX) + "," +
+							strconv.Itoa(iY) + "," +
+							strconv.Itoa(iZ) + " ... "
+						premade_val := host_premade_slice.Get(iComp, iX, iY, iZ, iIm)
+						test_val := host_test_slice.Get(iComp, iX, iY, iZ, iIm)
+						if print_only {
+							t_diff := test_val - premade_val
+							if math.Abs(t_diff) < tol {
+								fmt.Print(t_msg)
+								fmt.Printf("%+.6f", t_diff)
+								fmt.Print(" PASS\n")
+								// fmt.Print(t_msg + " | " + strconv.FormatFloat(t_diff, 'f', 6, 32) + " PASS\n")
+							} else {
+								fmt.Print(t_msg)
+								fmt.Printf("%+.6f", t_diff)
+								fmt.Print("<-- FAIL\n")
+								// fmt.Print(t_msg + strconv.FormatFloat(t_diff, 'f', 6, 32) + " !! FAIL !!\n")
+							}
+						} else {
+							Expect(t_msg, test_val, premade_val, tol)
+						}
+
+					}
+				}
+			}
+		}
+	}
 }
 
 const (

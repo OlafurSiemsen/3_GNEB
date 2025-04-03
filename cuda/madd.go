@@ -17,6 +17,57 @@ func Mul(dst, a, b *data.Slice) {
 	}
 }
 
+// reciprocal: dst[i] = 1 / a[i]
+func Recip(dst *data.Slice, a *data.Slice) {
+	N := dst.Len()
+	nComp := dst.NComp()
+	util.Assert(a.Len() == N && a.NComp() == nComp)
+	cfg := make1DConf(N)
+	for c := 0; c < nComp; c++ {
+		k_pointwise_recip_async(dst.DevPtr(c), a.DevPtr(c), N, cfg)
+	}
+}
+
+// scale: dst[i] = src[i] * factor, same factor for every vector
+func Scale(dst *data.Slice, src *data.Slice, factor float32) {
+	N := dst.Len()
+	nComp := dst.NComp()
+	util.Assert(src.Len() == N)
+	util.Assert(src.NComp() == nComp)
+	cfg := make1DConf(N)
+	for c := 0; c < nComp; c++ {
+		k_scale_async(dst.DevPtr(c), src.DevPtr(c), factor, N, cfg)
+	}
+}
+
+// pointwise vector scaling:
+// if factor.NComp() == 1
+//
+//	dst[nth comp][ith cell] = src[nth comp][ith cell] * factor[ith cell]
+//
+// if factor.NComp() == dst.NComp()
+//
+//	dst[nth comp][ith cell] = src[nth comp][ith cell] * factor[nth comp][ith cell]
+func VecScale(dst *data.Slice, src *data.Slice, factor *data.Slice) {
+	N := dst.Len()
+	nComp := dst.NComp()
+	util.Assert(src.Len() == N)
+	util.Assert(factor.Len() == N)
+	util.Assert(src.NComp() == nComp)
+	util.Assert(factor.NComp() == 1 || factor.NComp() == nComp)
+	cfg := make1DConf((N))
+	if factor.NComp() == 1 {
+		for c := 0; c < nComp; c++ {
+			k_pointwise_mul_async(dst.DevPtr(c), src.DevPtr(c), factor.DevPtr(0), N, cfg)
+		}
+	} else {
+		for c := 0; c < nComp; c++ {
+			k_pointwise_mul_async(dst.DevPtr(c), src.DevPtr(c), factor.DevPtr(c), N, cfg)
+		}
+	}
+
+}
+
 // divide: dst[i] = a[i] / b[i]
 // divide-by-zero yields zero.
 func Div(dst, a, b *data.Slice) {
@@ -32,6 +83,11 @@ func Div(dst, a, b *data.Slice) {
 // Add: dst = src1 + src2.
 func Add(dst, src1, src2 *data.Slice) {
 	Madd2(dst, src1, src2, 1, 1)
+}
+
+// Subtract: dst = src1 - src2
+func Sub(dst, src1, src2 *data.Slice) {
+	Madd2(dst, src1, src2, 1, -1)
 }
 
 // multiply-add: dst[i] = src1[i] * factor1 + src2[i] * factor2

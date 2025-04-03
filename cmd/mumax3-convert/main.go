@@ -311,7 +311,7 @@ var outputs = map[*bool]output{
 	flag_gnuplot: {".gplot", dumpGnuplot},
 	flag_dump:    {".dump", outputDUMP},
 	flag_csv:     {".csv", dumpCSV},
-	flag_numpy:   {".npy", dumpNUMPY},
+	flag_numpy:   {".npy", DumpNUMPY},
 	flag_json:    {".json", dumpJSON},
 	flag_show:    {"", show},
 }

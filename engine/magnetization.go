@@ -3,6 +3,7 @@ package engine
 import (
 	"math"
 	"reflect"
+	"slices"
 
 	"github.com/mumax/3/cuda"
 	"github.com/mumax/3/data"
@@ -46,11 +47,16 @@ func (m *magnetization) Set_N_Images(n_images int) {
 	// m.buffer_.N_images = n_images
 }
 
-func (b *magnetization) SetArray(src *data.Slice) {
+func (b *magnetization) SetArray(src *data.Slice, ind_image_variadic ...int) {
+	ind_image := data.ImageIndex(ind_image_variadic)
 	if src.Size() != b.Mesh().Size() {
 		src = data.Resample(src, b.Mesh().Size())
 	}
-	data.Copy(b.Buffer(), src)
+	if len(ind_image_variadic) == 0 {
+		data.Copy(b.Buffer(), src)
+	} else {
+		data.Copy(b.Buffer().SubSlice(ind_image), src)
+	}
 	b.normalize()
 }
 
@@ -135,18 +141,22 @@ func (m *magnetization) GetCell(ix, iy, iz int) data.Vector {
 func (m *magnetization) Quantity() []float64 { return slice(m.Average()) }
 
 // Sets the magnetization inside the shape
-func (m *magnetization) SetInShape(region Shape, conf Config) {
+func (m *magnetization) SetInShape(region Shape, conf Config, ind_image_variadic ...int) {
 	checkMesh()
 
 	if region == nil {
 		region = universe
 	}
+	images_specified := len(ind_image_variadic) != 0 // Checks if the user specified images to save
 	host := m.Buffer().HostCopy()
 	stored_host_ptr := host // We store a pointer to the original magnetization...
 	n := m.Mesh().Size()
 	var h [3][][][]float32
-	for ii := 0; ii < m.n_images; ii++ {
-		host = stored_host_ptr.SubSlice(ii) // ...iterate over the images...
+	for it_image := 0; it_image < m.n_images; it_image++ {
+		if images_specified && !slices.Contains(ind_image_variadic, it_image) { // Skips images that weren't specified by user
+			continue
+		}
+		host = stored_host_ptr.SubSlice(it_image) // ...iterate over the images...
 		h = host.Vectors()
 		for iz := 0; iz < n[Z]; iz++ {
 			for iy := 0; iy < n[Y]; iy++ {

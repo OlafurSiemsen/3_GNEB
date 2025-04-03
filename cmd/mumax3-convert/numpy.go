@@ -8,7 +8,7 @@ import (
 	"github.com/mumax/3/data"
 )
 
-func dumpNUMPY(f *data.Slice, info data.Meta, out io.Writer) {
+func DumpNUMPY(f *data.Slice, info data.Meta, out io.Writer) {
 
 	// see npy format: https://www.numpy.org/devdocs/reference/generated/numpy.lib.format.html
 

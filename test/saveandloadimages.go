@@ -47,13 +47,13 @@ func main() {
 	M.LoadFiles(dir_str+"m00000i001.ovf", dir_str+"m00000i00"+strconv.Itoa(N_images-2)+".ovf")
 	Save(&M)
 	Snapshot(&M)
+	host_slice := M.Buffer().HostCopy()
 	for it_x := range Nx {
 		for it_y := range Ny {
-			slice1 := M.Buffer().HostCopy()
 			Expect("Comparing images 0, 1 >> "+"Nx: "+strconv.Itoa(it_x)+" Ny: "+strconv.Itoa(it_y),
-				slice1.Get(2, it_x, it_y, 0, 0), slice1.Get(2, it_x, it_y, 0, 1), 0)
+				host_slice.Get(2, it_x, it_y, 0, 0), host_slice.Get(2, it_x, it_y, 0, 1), 0)
 			Expect("Comparing images 2, 3 >> "+"Nx: "+strconv.Itoa(it_x)+" Ny: "+strconv.Itoa(it_y),
-				slice1.Get(2, it_x, it_y, 0, 2), slice1.Get(2, it_x, it_y, 0, 3), 0)
+				host_slice.Get(2, it_x, it_y, 0, 2), host_slice.Get(2, it_x, it_y, 0, 3), 0)
 		}
 	}
 }

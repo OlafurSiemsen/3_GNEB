@@ -11,8 +11,9 @@ import (
 )
 
 // Make a GPU Slice with nComp components each of size length.
-func NewSlice(nComp int, size [3]int) *data.Slice {
-	return newSlice(nComp, size, MemAlloc, data.GPUMemory)
+func NewSlice(nComp int, size [3]int, n_images_variadic ...int) *data.Slice {
+	n_images := data.ImageNumber(n_images_variadic)
+	return newSlice(nComp, size, MemAlloc, data.GPUMemory, n_images)
 }
 
 // Make a GPU Slice with nComp components each of size length.
@@ -20,16 +21,16 @@ func NewSlice(nComp int, size [3]int) *data.Slice {
 //	return newSlice(nComp, m, cu.MemAllocHost, data.UnifiedMemory)
 //}
 
-func newSlice(nComp int, size [3]int, alloc func(int64) unsafe.Pointer, memType int8) *data.Slice {
+func newSlice(nComp int, size [3]int, alloc func(int64) unsafe.Pointer, memType int8, n_images int) *data.Slice {
 	data.EnableGPU(memFree, cu.MemFreeHost, MemCpy, MemCpyDtoH, MemCpyHtoD)
 	length := prod(size)
-	bytes := int64(length) * cu.SIZEOF_FLOAT32
+	bytes := int64(length) * cu.SIZEOF_FLOAT32 * int64(n_images)
 	ptrs := make([]unsafe.Pointer, nComp)
 	for c := range ptrs {
 		ptrs[c] = unsafe.Pointer(alloc(bytes))
 		cu.MemsetD32(cu.DevicePtr(uintptr(ptrs[c])), 0, int64(length))
 	}
-	return data.SliceFromPtrs(size, memType, ptrs)
+	return data.SliceFromPtrs(size, memType, ptrs, n_images)
 }
 
 // wrappers for data.EnableGPU arguments
@@ -80,6 +81,14 @@ func Memset(s *data.Slice, val ...float32) {
 // Set all elements of all components to zero.
 func Zero(s *data.Slice) {
 	Memset(s, make([]float32, s.NComp())...)
+}
+
+func Constant(s *data.Slice, c float32) {
+	t_vec := make([]float32, s.NComp())
+	for i := range t_vec {
+		t_vec[i] = c
+	}
+	Memset(s, t_vec...)
 }
 
 func SetCell(s *data.Slice, comp int, ix, iy, iz int, value float32) {
