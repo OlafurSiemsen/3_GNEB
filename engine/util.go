@@ -307,12 +307,10 @@ func CompareSlices(slice1 *data.Slice, slice2 *data.Slice, print_only bool) {
 								fmt.Print(t_msg)
 								fmt.Printf("%+.6f", t_diff)
 								fmt.Print(" PASS\n")
-								// fmt.Print(t_msg + " | " + strconv.FormatFloat(t_diff, 'f', 6, 32) + " PASS\n")
 							} else {
 								fmt.Print(t_msg)
 								fmt.Printf("%+.6f", t_diff)
 								fmt.Print("<-- FAIL\n")
-								// fmt.Print(t_msg + strconv.FormatFloat(t_diff, 'f', 6, 32) + " !! FAIL !!\n")
 							}
 						} else {
 							Expect(t_msg, test_val, premade_val, tol)
