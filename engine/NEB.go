@@ -78,7 +78,7 @@ func AngularInterpolation(dst *data.Slice, normalize bool, ind_image_variadic ..
 
 	dot_prod_slice := cuda.Buffer(1, dst.Size())
 	PrintSlice(dot_prod_slice, "dot_prod_1")
-	cuda.AddDotProduct(dot_prod_slice, 1, start_slice, end_slice)
+	cuda.DotProduct(dot_prod_slice, 1, start_slice, end_slice)
 	PrintSlice(dot_prod_slice, "dot_prod_2")
 
 	tot_angle_slice := cuda.Buffer(1, dst.Size())
