@@ -8,7 +8,7 @@ import (
 )
 
 func InterpolateMagnetization(min_index, max_index int) {
-	Interpolate(M.buffer_, min_index, max_index)
+	AngularInterpolation(M.buffer_, false, min_index, max_index)
 }
 
 // Takes a data.Slice with multiple images and overwrites the images between
@@ -77,9 +77,7 @@ func AngularInterpolation(dst *data.Slice, normalize bool, ind_image_variadic ..
 	cuda.Veclen(cross_prod_norm_slice, cross_prod_slice)
 
 	dot_prod_slice := cuda.Buffer(1, dst.Size())
-	PrintSlice(dot_prod_slice, "dot_prod_1")
-	cuda.DotProduct(dot_prod_slice, 1, start_slice, end_slice)
-	PrintSlice(dot_prod_slice, "dot_prod_2")
+	cuda.AddDotProduct(dot_prod_slice, 1, start_slice, end_slice)
 
 	tot_angle_slice := cuda.Buffer(1, dst.Size())
 	cuda.Atan2(tot_angle_slice, cross_prod_norm_slice, dot_prod_slice)
@@ -95,35 +93,22 @@ func AngularInterpolation(dst *data.Slice, normalize bool, ind_image_variadic ..
 	sin_slice := cuda.Buffer(1, dst.Size())
 	cuda.Sin(sin_slice, angle_slice)
 
-	PrintSlice(start_slice, "start_slice")
-	PrintSlice(end_slice, "end_slice")
-	PrintSlice(cross_prod_slice, "cross_prod_slice")
-	PrintSlice(cross_prod_norm_slice, "cross_prod_norm_slice")
-	PrintSlice(dot_prod_slice, "dot_prod_slice")
-	PrintSlice(tot_angle_slice, "tot_angle_slice")
-	PrintSlice(angle_slice, "angle_slice")
-	PrintSlice(rot_axis_slice, "rot_axis_slice")
-	PrintSlice(cos_slice, "cos_slice")
-	PrintSlice(sin_slice, "sin_slice")
-
-	// TODO: recycle the unnecessary slices
-	// Combining ingredients
-
+	// Assembly
 	for iI := range num_intervals - 1 {
 		RotateSlice(dst.SubSlice(min_index+iI+1), dst.SubSlice(min_index+iI), rot_axis_slice, cos_slice, sin_slice)
 	}
+
+	// Cleaning up
+	// These should probably be 'defer' statements after the creation of each
+	// buffer but this results in unexpected behavior which is being investigated.
+	cuda.Recycle(cross_prod_slice)
+	cuda.Recycle(cross_prod_norm_slice)
+	cuda.Recycle(dot_prod_slice)
+	cuda.Recycle(tot_angle_slice)
+	cuda.Recycle(angle_slice)
 	cuda.Recycle(rot_axis_slice)
 	cuda.Recycle(cos_slice)
 	cuda.Recycle(sin_slice)
-	cuda.Recycle(dot_prod_slice)
-
-	cuda.Recycle(tot_angle_slice)
-
-	cuda.Recycle(cross_prod_slice)
-
-	cuda.Recycle(cross_prod_norm_slice)
-
-	cuda.Recycle(angle_slice)
 }
 
 // Implements Rodrigues' rotation formula.

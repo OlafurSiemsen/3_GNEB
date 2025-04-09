@@ -298,22 +298,24 @@ func CompareSlices(slice1 *data.Slice, slice2 *data.Slice, print_only bool) {
 							strconv.Itoa(iComp) + "," +
 							strconv.Itoa(iX) + "," +
 							strconv.Itoa(iY) + "," +
-							strconv.Itoa(iZ) + " ... "
+							strconv.Itoa(iZ)
 						premade_val := host_premade_slice.Get(iComp, iX, iY, iZ, iIm)
 						test_val := host_test_slice.Get(iComp, iX, iY, iZ, iIm)
 						if print_only {
 							t_diff := test_val - premade_val
 							if math.Abs(t_diff) < tol {
 								fmt.Print(t_msg)
+								fmt.Print(" diff:")
 								fmt.Printf("%+.6f", t_diff)
 								fmt.Print(" PASS\n")
 							} else {
 								fmt.Print(t_msg)
+								fmt.Print(" diff:")
 								fmt.Printf("%+.6f", t_diff)
 								fmt.Print("<-- FAIL\n")
 							}
 						} else {
-							Expect(t_msg, test_val, premade_val, tol)
+							Expect(t_msg+" ...", test_val, premade_val, tol)
 						}
 
 					}
