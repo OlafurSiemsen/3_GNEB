@@ -23,6 +23,14 @@ func Sum(in *data.Slice) float32 {
 	return copyback(out)
 }
 
+// Sum of the square of all elements
+func ReduceSquareSum(in *data.Slice) float32 {
+	util.Argument(in.NComp() == 1)
+	out := reduceBuf(0)
+	k_reducesquaresum_async(in.DevPtr(0), out, 0, in.Len(), reducecfg)
+	return copyback(out)
+}
+
 // Dot product.
 func Dot(a, b *data.Slice) float32 {
 	nComp := a.NComp()

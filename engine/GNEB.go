@@ -1,7 +1,8 @@
 package engine
 
 import (
-	"fmt"
+	"math"
+	"slices"
 
 	"github.com/mumax/3/cuda"
 	"github.com/mumax/3/data"
@@ -77,7 +78,7 @@ func AngularInterpolation(dst *data.Slice, normalize bool, ind_image_variadic ..
 	cuda.Veclen(cross_prod_norm_slice, cross_prod_slice)
 
 	dot_prod_slice := cuda.Buffer(1, dst.Size())
-	cuda.AddDotProduct(dot_prod_slice, 1, start_slice, end_slice)
+	cuda.DotProduct(dot_prod_slice, 1, start_slice, end_slice)
 
 	tot_angle_slice := cuda.Buffer(1, dst.Size())
 	cuda.Atan2(tot_angle_slice, cross_prod_norm_slice, dot_prod_slice)
@@ -100,7 +101,7 @@ func AngularInterpolation(dst *data.Slice, normalize bool, ind_image_variadic ..
 
 	// Cleaning up
 	// These should probably be 'defer' statements after the creation of each
-	// buffer but this results in unexpected behavior which is being investigated.
+	// buffer but this results in unexpected behavior which needs investigation.
 	cuda.Recycle(cross_prod_slice)
 	cuda.Recycle(cross_prod_norm_slice)
 	cuda.Recycle(dot_prod_slice)
@@ -131,9 +132,7 @@ func RotateSlice(dst *data.Slice, src *data.Slice, rotation_vector *data.Slice, 
 	}
 
 	vec_term := cuda.Buffer(3, dst.Size())
-	defer cuda.Recycle(vec_term)
 	scalar_term := cuda.Buffer(1, dst.Size())
-	defer cuda.Recycle(scalar_term)
 
 	// dst = src * cos(angle)
 	cuda.VecScale(dst, src, cos_angle)
@@ -151,26 +150,122 @@ func RotateSlice(dst *data.Slice, src *data.Slice, rotation_vector *data.Slice, 
 		cuda.VecScale(vec_term, rotation_vector, scalar_term)    // vec_term = rotation_vector * (rotation_vector · src) * (1 - cos(angle))
 		cuda.Add(dst, dst, vec_term)                             // dst = dst + rotation_vector * (rotation_vector · src) * (1 - cos(angle))
 	}
+
+	defer cuda.Recycle(vec_term)
+	defer cuda.Recycle(scalar_term)
 }
 
 func imageSub(dst *data.Slice, src *data.Slice, ind_img1 int, ind_img2 int) {
 	cuda.Sub(dst, src.SubSlice(ind_img1), src.SubSlice(ind_img2))
 }
 
-func CalculateTangents(o_slice *data.Slice, i_slice *data.Slice, strategy string) {
-	// Selecting a strategy
-	switch strategy {
-	case "central":
+// Calculates tangents between images as is used in NEB methods.
+// Accepts a magnetization type struct and populates its tangent_buffer_ according
+// to Appendix A of https://doi.org/10.1016/j.cpc.2015.07.001, selecting either forward,
+// backwards, or a weighted average depending on the energy of each image.
+func CalculateTangents(mag_variadic ...magnetization) {
+	var mag magnetization
+	switch len(mag_variadic) {
+	case 0:
+		mag = M
+	case 1:
+		mag = mag_variadic[0]
 	default:
-		fmt.Println("Invalid strategy. Please select one of: \"central\", ")
+		panic("Please pass either 0 or 1 magnetization for tangent calculation")
 	}
-
-	centralDifference(i_slice, o_slice)
+	if len(mag.E_img) == 0 {
+		panic("The energy of each image must be known before calculating tangents")
+	}
+	E_img := mag.E_img
+	tangent_slice := mag.tangent_buffer_
+	mag_slice := mag.buffer_
+	n_images := mag_slice.N_images
+	for ind_img := 1; ind_img < n_images-1; ind_img++ {
+		E_np1 := E_img[ind_img+1]
+		E_n := E_img[ind_img]
+		E_nm1 := E_img[ind_img-1]
+		switch {
+		case E_np1 > E_n && E_n > E_nm1:
+			// forward difference
+			imageSub(tangent_slice.SubSlice(ind_img), mag_slice, ind_img+1, ind_img)
+		case E_np1 < E_n && E_n < E_nm1:
+			// backwards difference
+			imageSub(tangent_slice.SubSlice(ind_img), mag_slice, ind_img, ind_img-1)
+		default:
+			delta_E := []float64{math.Abs(E_np1 - E_n), math.Abs(E_n - E_nm1)}
+			max_delta_E := float32(slices.Max(delta_E))
+			min_delta_E := float32(slices.Min(delta_E))
+			fwd_diff_slice := cuda.Buffer(3, mag_slice.Size())
+			imageSub(fwd_diff_slice, mag_slice, ind_img+1, ind_img)
+			bkwd_diff_slice := cuda.Buffer(3, mag_slice.Size())
+			imageSub(bkwd_diff_slice, mag_slice, ind_img, ind_img-1)
+			switch {
+			case E_np1 > E_nm1:
+				// fwd diff * dE_max + bkwd diff * dE_min
+				cuda.Madd2(tangent_slice.SubSlice(ind_img), fwd_diff_slice, bkwd_diff_slice, max_delta_E, min_delta_E)
+			case E_np1 < E_nm1:
+				// fwd diff * dE_min + bkwd diff * dE_max
+				cuda.Madd2(tangent_slice.SubSlice(ind_img), fwd_diff_slice, bkwd_diff_slice, min_delta_E, max_delta_E)
+			}
+			cuda.Recycle(fwd_diff_slice)
+			cuda.Recycle(bkwd_diff_slice)
+		}
+	}
 }
 
-// Applies forward differences to all but the last image in a slice
-func centralDifference(i_slice *data.Slice, o_slice *data.Slice) {
-	for it := 1; it < i_slice.N_images-1; it++ {
-		cuda.Sub(o_slice.SubSlice(it), i_slice.SubSlice(it+1), i_slice.SubSlice(it))
+// Projects the tangents between images in the passed magnetization struct onto
+// the geodesic tangent space of the magnetization according to section 3 of
+// https://doi.org/10.1016/j.cpc.2015.07.001.
+func ProjectTangents(mag_variadic ...magnetization) {
+	var mag magnetization
+	switch len(mag_variadic) {
+	case 0:
+		mag = M
+	case 1:
+		mag = mag_variadic[0]
+	default:
+		panic("Please pass either 0 or 1 magnetization for tangent projection")
 	}
+	// Check whether tangents have been calculated?
+	tangent_slice := mag.tangent_buffer_
+	mag_slice := mag.buffer_
+	// n_images := mag_slice.N_images
+	cuda.ProjectOntoTangent(tangent_slice, tangent_slice, mag_slice)
+	mag.geodesic_tangents = true
+}
+
+func CalculateGeodesicDistances(mag_variadic ...magnetization) {
+	var mag magnetization
+	switch len(mag_variadic) {
+	case 0:
+		mag = M
+	case 1:
+		mag = mag_variadic[0]
+	default:
+		panic("Please pass either 0 or 1 magnetization for tangent projection")
+	}
+	mag_slice := mag.buffer_
+	n_images := mag_slice.N_images
+	cross_prod_slice := cuda.Buffer(3, mag_slice.Size())
+	cross_prod_norm_slice := cuda.Buffer(1, mag_slice.Size())
+	dot_prod_slice := cuda.Buffer(1, mag_slice.Size())
+	tot_angle_slice := cuda.Buffer(1, mag_slice.Size())
+	for ind_img := 0; ind_img < n_images-1; ind_img++ {
+		img_n := mag_slice.SubSlice(ind_img)
+		img_np1 := mag_slice.SubSlice(ind_img + 1)
+
+		cuda.CrossProduct(cross_prod_slice, img_n, img_np1)
+
+		cuda.Veclen(cross_prod_norm_slice, cross_prod_slice)
+
+		cuda.DotProduct(dot_prod_slice, 1, img_n, img_np1)
+
+		cuda.Atan2(tot_angle_slice, cross_prod_norm_slice, dot_prod_slice)
+
+		mag.Geodesic_distances[ind_img] = math.Sqrt(float64(cuda.ReduceSquareSum(tot_angle_slice)))
+	}
+	cuda.Recycle(cross_prod_slice)
+	cuda.Recycle(cross_prod_norm_slice)
+	cuda.Recycle(dot_prod_slice)
+	cuda.Recycle(tot_angle_slice)
 }

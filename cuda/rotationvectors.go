@@ -19,8 +19,9 @@ func RotationVectors(dst *data.Slice, start_vec *data.Slice, cross_prod_slice *d
 	rng := rand.New(rand.NewSource(int64(time.Now().UTC().UnixNano())))
 	R := data.Vector{rng.Float64() - 0.5, rng.Float64() - 0.5, rng.Float64() - 0.5}
 	R.Mul(1 / R.Len()) // normalize r1
-	costheta := rng.Float64()*2 - 1
-	sintheta := math.Sqrt(1 - costheta*costheta)
+	theta := rng.Float64() * math.Pi
+	costheta := math.Cos(theta)
+	sintheta := math.Sin(theta)
 	versinetheta := (1 - costheta)
 	// r1 is (1,0,0) rotated by theta around R
 	r1 := data.Vector{

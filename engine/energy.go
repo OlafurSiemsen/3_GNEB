@@ -23,6 +23,16 @@ func registerEnergy(term func() float64, dens func(*data.Slice)) {
 	edensTerms = append(edensTerms, dens)
 }
 
+func CalculateTotalImageEnergies() {
+	M.E_img = make([]float64, M.n_images)
+	for ind_img := range M.n_images {
+		stored_magnetization_ptr := M.buffer_ // We store a pointer to the original magnetization...
+		M.buffer_ = M.buffer_.SubSlice(ind_img)
+		M.E_img[ind_img] = GetTotalEnergy()
+		M.buffer_ = stored_magnetization_ptr //...and then restore the original magnetization pointer
+	}
+}
+
 // Returns the total energy in J.
 func GetTotalEnergy() float64 {
 	E := 0.

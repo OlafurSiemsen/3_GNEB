@@ -17,8 +17,12 @@ func init() { DeclLValue("m", &M, `Reduced magnetization (unit length)`) }
 // Special buffered quantity to store magnetization
 // makes sure it's normalized etc.
 type magnetization struct {
-	buffer_  *data.Slice
-	n_images int
+	buffer_            *data.Slice
+	n_images           int
+	E_img              []float64   // Energy, one for each image
+	tangent_buffer_    *data.Slice // Contains the tangents pointing from one image to the next
+	geodesic_tangents  bool        // True if the tangents are orthogonal to m
+	Geodesic_distances []float64   // Geodesic distance between neighbouring images
 }
 
 func (m *magnetization) Mesh() *data.Mesh    { return Mesh() }
@@ -38,7 +42,12 @@ func (m *magnetization) normalize()              { cuda.Normalize(m.Buffer(), ge
 
 // allocate storage (not done by init, as mesh size may not yet be known then)
 func (m *magnetization) alloc() {
+	m.geodesic_tangents = false
 	m.buffer_ = cuda.NewSlice(3, m.Mesh().Size(), m.n_images)
+	if m.n_images != 0 {
+		m.tangent_buffer_ = cuda.NewSlice(3, m.Mesh().Size(), m.n_images)
+		m.Geodesic_distances = make([]float64, m.n_images-1)
+	}
 	m.Set(RandomMag()) // sane starting config
 }
 
