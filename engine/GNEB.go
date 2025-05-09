@@ -162,7 +162,7 @@ func imageSub(dst *data.Slice, src *data.Slice, ind_img1 int, ind_img2 int) {
 // Calculates tangents between images as is used in NEB methods.
 // Accepts a magnetization type struct and populates its tangent_buffer_ according
 // to Appendix A of https://doi.org/10.1016/j.cpc.2015.07.001, selecting either forward,
-// backwards, or a weighted average depending on the energy of each image.
+// backwards, or a weighted average depending on the energy of neighbouring images.
 func CalculateTangents(mag_variadic ...magnetization) {
 	var mag magnetization
 	switch len(mag_variadic) {
@@ -230,7 +230,7 @@ func ProjectTangents(mag_variadic ...magnetization) {
 	tangent_slice := mag.tangent_buffer_
 	mag_slice := mag.buffer_
 	// n_images := mag_slice.N_images
-	cuda.ProjectOntoTangent(tangent_slice, tangent_slice, mag_slice)
+	cuda.Orthogonalize(tangent_slice, tangent_slice, mag_slice)
 	mag.geodesic_tangents = true
 }
 
@@ -268,4 +268,57 @@ func CalculateGeodesicDistances(mag_variadic ...magnetization) {
 	cuda.Recycle(cross_prod_norm_slice)
 	cuda.Recycle(dot_prod_slice)
 	cuda.Recycle(tot_angle_slice)
+}
+
+// Calculates the total GNEB force according to eq. 14 of https://doi.org/10.1016/j.cpc.2015.07.001.
+func GNEB_force_transformation(p_force_slice *data.Slice, kappa []float32, mag_variadic ...magnetization) {
+	var mag magnetization
+	switch len(mag_variadic) {
+	case 0:
+		mag = M
+	case 1:
+		mag = mag_variadic[0]
+	default:
+		panic("Please pass either 0 or 1 magnetization for GNEB calculation")
+	}
+	mag_slice := mag.buffer_
+	tangent_slice := mag.tangent_buffer_
+	n_images := mag.n_images
+
+	// Project energy real force orthogonal to
+	cuda.Orthogonalize(p_force_slice, p_force_slice, tangent_slice)
+	// Generate elastic forces
+	elastic_force_slice := cuda.Buffer(3, mag_slice.Size(), n_images)
+	CalculateGeodesicElasticForces(elastic_force_slice, p_force_slice, kappa, mag)
+	cuda.Add(p_force_slice, p_force_slice, elastic_force_slice)
+	// Cleanup
+	cuda.Recycle(elastic_force_slice)
+}
+
+// Calculates the total GNEB force according to eq. 12 of https://doi.org/10.1016/j.cpc.2015.07.001.
+func CalculateGeodesicElasticForces(geodesic_elastic_force *data.Slice, energy_gradient *data.Slice, kappa []float32, mag magnetization) {
+	mag_slice := mag.buffer_
+	tangent_slice := mag.tangent_buffer_
+	n_images := mag_slice.N_images
+	switch len(kappa) {
+	case 1:
+		kappa = make([]float32, n_images-1)
+		for ind := 1; ind < n_images-1; ind++ {
+			kappa[ind] = kappa[0]
+		}
+	case n_images - 1:
+	default:
+		panic("Please pass either 1 or n_images-1 kappas for geodesic elastic force calculation")
+	}
+
+	elastic_force_slice := cuda.Buffer(3, mag_slice.Size(), n_images)
+	for ind_img := 1; ind_img < n_images-1; ind_img++ {
+		elastic_force_n := elastic_force_slice.SubSlice(ind_img)
+		tangent_n := tangent_slice.SubSlice(ind_img)
+		coeff := kappa[ind_img] * float32(mag.Geodesic_distances[ind_img]-mag.Geodesic_distances[ind_img-1])
+		cuda.Scale(elastic_force_n, tangent_n, coeff)
+	}
+	cuda.Add(geodesic_elastic_force, geodesic_elastic_force, elastic_force_slice)
+
+	cuda.Recycle(elastic_force_slice)
 }

@@ -1,7 +1,7 @@
 #include "float3.h"
 
 extern "C" __global__ void
-projectontotangent(float* __restrict__  dstx, float* __restrict__  dsty, float* __restrict__  dstz,
+orthogonalize(float* __restrict__  dstx, float* __restrict__  dsty, float* __restrict__  dstz,
            float* __restrict__ ax, float* __restrict__ ay, float* __restrict__ az,
            float* __restrict__ bx, float* __restrict__ by, float* __restrict__ bz,
            int N) {
