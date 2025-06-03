@@ -12,7 +12,7 @@ import (
 //	B: effective field in Tesla
 //	Aex_red: Aex / (Msat * 1e18 m2)
 //
-// see exchange.cu
+// see file://./exchange.cu
 func AddExchange(B, m *data.Slice, Aex_red SymmLUT, Msat MSlice, regions *Bytes, mesh *data.Mesh) {
 	c := mesh.CellSize()
 	wx := float32(2 / (c[X] * c[X]))

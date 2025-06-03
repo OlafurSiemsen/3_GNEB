@@ -3,9 +3,10 @@ package engine
 // Utilities for setting magnetic configurations.
 
 import (
-	"github.com/mumax/3/data"
 	"math"
 	"math/rand"
+
+	"github.com/mumax/3/data"
 )
 
 func init() {
@@ -14,7 +15,7 @@ func init() {
 	DeclFunc("Antivortex", AntiVortex, "Antivortex magnetization with given circulation and core polarization")
 	DeclFunc("NeelSkyrmion", NeelSkyrmion, "Néél skyrmion magnetization with given charge and core polarization")
 	DeclFunc("BlochSkyrmion", BlochSkyrmion, "Bloch skyrmion magnetization with given chirality and core polarization")
-	DeclFunc("TwoDomain", TwoDomain, "Twodomain magnetization with with given magnetization in left domain, wall, and right domain")
+	DeclFunc("TwoDomain", TwoDomain, "Twodomain magnetization with given magnetization in left domain, wall, and right domain")
 	DeclFunc("VortexWall", VortexWall, "Vortex wall magnetization with given mx in left and right domain and core circulation and polarization")
 	DeclFunc("RandomMag", RandomMag, "Random magnetization")
 	DeclFunc("RandomMagSeed", RandomMagSeed, "Random magnetization with given seed")

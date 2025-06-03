@@ -17,12 +17,15 @@ func init() { DeclLValue("m", &M, `Reduced magnetization (unit length)`) }
 // Special buffered quantity to store magnetization
 // makes sure it's normalized etc.
 type magnetization struct {
-	buffer_            *data.Slice
-	n_images           int
-	E_img              []float64   // Energy, one for each image
-	tangent_buffer_    *data.Slice // Contains the tangents pointing from one image to the next
-	geodesic_tangents  bool        // True if the tangents are orthogonal to m
-	Geodesic_distances []float64   // Geodesic distance between neighbouring images
+	buffer_                 *data.Slice
+	N_images                int
+	E_img                   []float64   // Energy, one for each image
+	E_img_calc              bool        // True if path E_img has been calculated
+	tangent_buffer_         *data.Slice // Contains the tangents pointing from one image to the next
+	tangent_calc            bool        // True if path tangent has been calculated
+	geodesic_tangents_calc  bool        // True if the tangents are orthogonal to m
+	Geodesic_distances      []float64   // Geodesic distance between neighbouring images
+	Geodesic_distances_calc bool        // True if path Geodesic_distances has been calculated
 }
 
 func (m *magnetization) Mesh() *data.Mesh    { return Mesh() }
@@ -42,18 +45,35 @@ func (m *magnetization) normalize()              { cuda.Normalize(m.Buffer(), ge
 
 // allocate storage (not done by init, as mesh size may not yet be known then)
 func (m *magnetization) alloc() {
-	m.geodesic_tangents = false
-	m.buffer_ = cuda.NewSlice(3, m.Mesh().Size(), m.n_images)
-	if m.n_images != 0 {
-		m.tangent_buffer_ = cuda.NewSlice(3, m.Mesh().Size(), m.n_images)
-		m.Geodesic_distances = make([]float64, m.n_images-1)
+	m.buffer_ = cuda.NewSlice(3, m.Mesh().Size(), m.N_images)
+	if m.N_images != 0 {
+		m.tangent_buffer_ = cuda.NewSlice(3, m.Mesh().Size(), m.N_images)
+		m.Geodesic_distances = make([]float64, m.N_images-1)
 	}
+	m.reset_calc_flags()
 	m.Set(RandomMag()) // sane starting config
 }
 
+// Resets the quantities to do with the path, this should be invoked whenever
+// the magnetization is changed
+func (m *magnetization) reset_calc_flags() {
+	m.E_img_calc = false
+	m.tangent_calc = false
+	m.geodesic_tangents_calc = false
+	m.Geodesic_distances_calc = false
+}
+
 func (m *magnetization) Set_N_Images(n_images int) {
-	m.n_images = n_images
+	m.N_images = n_images
 	// m.buffer_.N_images = n_images
+}
+
+// TODO: Perhaps also change the tangent slice to a subslice
+func (i_magnetization *magnetization) SubMagnetization(ind_image int) *magnetization {
+	o_magnetization := i_magnetization
+	o_magnetization.buffer_ = o_magnetization.buffer_.SubSlice(ind_image)
+	o_magnetization.N_images = 1
+	return o_magnetization
 }
 
 func (b *magnetization) SetArray(src *data.Slice, ind_image_variadic ...int) {
@@ -75,7 +95,7 @@ func (m *magnetization) Set(c Config) {
 }
 
 func (m *magnetization) LoadFile(fname string, ind_image_variadic ...int) {
-	if m.n_images == 1 { // Just the normal MuMax way
+	if m.N_images == 1 { // Just the normal MuMax way
 		m.SetArray(LoadFile(fname))
 	} else { // Load to a specific image
 		ind_image := data.ImageIndex(ind_image_variadic)
@@ -91,10 +111,10 @@ func (m *magnetization) LoadFile(fname string, ind_image_variadic ...int) {
 func (m *magnetization) LoadFiles(fname ...string) {
 	n_files := len(fname)
 	var it_indeces []int
-	if n_files > m.n_images {
+	if n_files > m.N_images {
 		panic("Loading more images than there are in the path not supported (yet)")
 	} else {
-		it_indeces = SpreadIndex(n_files, m.n_images)
+		it_indeces = SpreadIndex(n_files, m.N_images)
 	}
 	for ind_fname, ind_image := range it_indeces {
 		m.LoadFile(fname[ind_fname], ind_image)
@@ -161,7 +181,7 @@ func (m *magnetization) SetInShape(region Shape, conf Config, ind_image_variadic
 	stored_host_ptr := host // We store a pointer to the original magnetization...
 	n := m.Mesh().Size()
 	var h [3][][][]float32
-	for it_image := 0; it_image < m.n_images; it_image++ {
+	for it_image := 0; it_image < m.N_images; it_image++ {
 		if images_specified && !slices.Contains(ind_image_variadic, it_image) { // Skips images that weren't specified by user
 			continue
 		}

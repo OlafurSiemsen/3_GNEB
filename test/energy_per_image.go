@@ -47,7 +47,7 @@ func main() {
 	old_energies := make([]float64, n_images)
 
 	data.Copy(slice_backup, M.Buffer())
-	CalcTotalImageEnergies()
+	CalculateTotalImageEnergies()
 	copy(new_energies, M.E_img)
 
 	SetNImages(1)

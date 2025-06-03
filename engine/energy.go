@@ -3,6 +3,8 @@ package engine
 // Total energy calculation
 
 import (
+	"slices"
+
 	"github.com/mumax/3/cuda"
 	"github.com/mumax/3/data"
 )
@@ -23,13 +25,47 @@ func registerEnergy(term func() float64, dens func(*data.Slice)) {
 	edensTerms = append(edensTerms, dens)
 }
 
-func CalculateTotalImageEnergies() {
-	M.E_img = make([]float64, M.n_images)
-	for ind_img := range M.n_images {
+func CalculateTotalImageEnergies(mag_variadic ...*magnetization) {
+	var mag *magnetization
+	switch len(mag_variadic) {
+	case 0:
+		mag = &M
+	case 1:
+		mag = mag_variadic[0]
+	default:
+		panic("Please pass either 0 or 1 magnetization for GNEB calculation")
+	}
+	if mag.E_img_calc {
+		// E_img already calculated
+		return
+	}
+	mag.E_img = make([]float64, M.N_images)
+	for ind_img := range M.N_images {
 		stored_magnetization_ptr := M.buffer_ // We store a pointer to the original magnetization...
-		M.buffer_ = M.buffer_.SubSlice(ind_img)
-		M.E_img[ind_img] = GetTotalEnergy()
-		M.buffer_ = stored_magnetization_ptr //...and then restore the original magnetization pointer
+		mag.buffer_ = M.buffer_.SubSlice(ind_img)
+		mag.E_img[ind_img] = GetTotalEnergy()
+		mag.buffer_ = stored_magnetization_ptr //...and then restore the original magnetization pointer
+	}
+	mag.E_img_calc = true
+}
+
+func GetMaxImageEnergy(mag_variadic ...*magnetization) float64 {
+	var mag *magnetization
+	switch len(mag_variadic) {
+	case 0:
+		mag = &M
+	case 1:
+		mag = mag_variadic[0]
+	default:
+		panic("Please pass either 0 or 1 magnetization for GNEB calculation")
+	}
+	if mag.N_images != 1 {
+		if !mag.E_img_calc {
+			CalculateTotalImageEnergies(mag)
+		}
+		return slices.Max(mag.E_img)
+	} else {
+		return GetTotalEnergy()
 	}
 }
 

@@ -12,7 +12,7 @@ import (
 var (
 	Msat        = NewScalarParam("Msat", "A/m", "Saturation magnetization")
 	M_full      = NewVectorField("m_full", "A/m", "Unnormalized magnetization", SetMFull)
-	B_demag     = NewVectorField("B_demag", "T", "Magnetostatic field", SetDemagField)
+	B_demag     = NewVectorField("B_demag", "T", "Magnetostatic field", Curried_SetEffectiveField(&M))
 	Edens_demag = NewScalarField("Edens_demag", "J/m3", "Magnetostatic energy density", AddEdens_demag)
 	E_demag     = NewScalarValue("E_demag", "J", "Magnetostatic energy", GetDemagEnergy)
 
@@ -33,13 +33,13 @@ func init() {
 }
 
 // Sets dst to the current demag field
-func SetDemagField(dst *data.Slice) {
+func SetDemagField(dst *data.Slice, mag *magnetization) {
 	if EnableDemag {
 		msat := Msat.MSlice()
 		defer msat.Recycle()
 		if NoDemagSpins.isZero() {
 			// Normal demag, everywhere
-			demagConv().Exec(dst, M.Buffer(), geometry.Gpu(), msat)
+			demagConv().Exec(dst, mag.Buffer(), geometry.Gpu(), msat)
 		} else {
 			setMaskedDemagField(dst, msat)
 		}

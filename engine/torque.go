@@ -13,7 +13,7 @@ var (
 	Xi                               = NewScalarParam("xi", "", "Non-adiabaticity of spin-transfer-torque")
 	Pol                              = NewScalarParam("Pol", "", "Electrical current polarization")
 	Lambda                           = NewScalarParam("Lambda", "", "Slonczewski Λ parameter")
-	EpsilonPrime                     = NewScalarParam("EpsilonPrime", "", "Slonczewski secondairy STT term ε'")
+	EpsilonPrime                     = NewScalarParam("EpsilonPrime", "", "Slonczewski secondary STT term ε'")
 	FrozenSpins                      = NewScalarParam("frozenspins", "", "Defines spins that should be fixed") // 1 - frozen, 0 - free. TODO: check if it only contains 0/1 values
 	FreeLayerThickness               = NewScalarParam("FreeLayerThickness", "m", "Slonczewski free layer thickness (if set to zero (default), then the thickness will be deduced from the mesh size)")
 	FixedLayer                       = NewExcitation("FixedLayer", "", "Slonczewski fixed layer polarization")
@@ -43,6 +43,16 @@ func init() {
 
 // Sets dst to the current total torque
 func SetTorque(dst *data.Slice) {
+	if dst.N_images > 1 {
+		n_images := dst.N_images
+		stored_magnetization_ptr := M.buffer_ // We store a pointer to the original magnetization...
+		for ind_img := 0; ind_img < n_images; ind_img++ {
+			M.buffer_ = stored_magnetization_ptr.SubSlice(ind_img) // ...one at a time...
+			SetTorque(dst.SubSlice(ind_img))
+		}
+		M.buffer_ = stored_magnetization_ptr //...and then restore the original magnetization pointer
+		return
+	}
 	SetLLTorque(dst)
 	AddSTTorque(dst)
 	FreezeSpins(dst)
@@ -50,7 +60,7 @@ func SetTorque(dst *data.Slice) {
 
 // Sets dst to the current Landau-Lifshitz torque
 func SetLLTorque(dst *data.Slice) {
-	SetEffectiveField(dst) // calc and store B_eff
+	SetEffectiveField(dst, &M) // calc and store B_eff
 	alpha := Alpha.MSlice()
 	defer alpha.Recycle()
 	if Precess {

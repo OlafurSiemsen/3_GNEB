@@ -157,11 +157,7 @@ func SliceFromPtrs(size [3]int, memType int8, ptrs []unsafe.Pointer, n_images_va
 		s.ptrs[c] = ptrs[c]
 	}
 	s.memType = memType
-	if n_images != 1 { // s.n_images = n_images?
-		s.N_images = n_images
-	} else {
-		s.N_images = 1
-	}
+	s.N_images = n_images
 	return s
 }
 

@@ -292,7 +292,7 @@ func cat(desc, unit string) string {
 	}
 }
 
-// these methods should only be accesible from Go
+// these methods should only be accessible from Go
 
 func (p *RegionwiseScalar) SetRegionValueGo(region int, v float64) {
 	if region == -1 {
@@ -355,6 +355,12 @@ func (p *RegionwiseVector) setRegionsFunc(r1, r2 int, f script.VectorFunction) {
 func (p *RegionwiseVector) SetRegionFn(region int, f func() [3]float64) {
 	p.setFunc(region, region+1, func() []float64 {
 		return slice(f())
+	})
+}
+
+func (p *RegionwiseVector) Set(v []float64) {
+	p.setFunc(0, NREGION, func() []float64 {
+		return v
 	})
 }
 

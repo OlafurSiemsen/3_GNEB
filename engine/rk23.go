@@ -1,10 +1,11 @@
 package engine
 
 import (
+	"math"
+
 	"github.com/mumax/3/cuda"
 	"github.com/mumax/3/data"
 	"github.com/mumax/3/util"
-	"math"
 )
 
 // Bogacki-Shampine solver. 3rd order, 3 evaluations per step, adaptive step.
@@ -24,6 +25,7 @@ type RK23 struct {
 func (rk *RK23) Step() {
 	m := M.Buffer()
 	size := m.Size()
+	n_images := m.N_images
 
 	if FixDt != 0 {
 		Dt_si = FixDt
@@ -36,7 +38,7 @@ func (rk *RK23) Step() {
 
 	// first step ever: one-time k1 init and eval
 	if rk.k1 == nil {
-		rk.k1 = cuda.NewSlice(3, size)
+		rk.k1 = cuda.NewSlice(3, size, M.N_images)
 		torqueFn(rk.k1)
 	}
 
@@ -47,11 +49,11 @@ func (rk *RK23) Step() {
 
 	t0 := Time
 	// backup magnetization
-	m0 := cuda.Buffer(3, size)
+	m0 := cuda.Buffer(3, size, n_images)
 	defer cuda.Recycle(m0)
 	data.Copy(m0, m)
 
-	k2, k3, k4 := cuda.Buffer(3, size), cuda.Buffer(3, size), cuda.Buffer(3, size)
+	k2, k3, k4 := cuda.Buffer(3, size, n_images), cuda.Buffer(3, size, n_images), cuda.Buffer(3, size, n_images)
 	defer cuda.Recycle(k2)
 	defer cuda.Recycle(k3)
 	defer cuda.Recycle(k4)
