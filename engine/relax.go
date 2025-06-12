@@ -21,7 +21,7 @@ func init() {
 var relaxing = false
 
 func Relax() {
-	if M.N_images != 1 {
+	if M.GetNImages() != 1 {
 		panic("Relax does not support multiple images yet")
 	}
 	SanityCheck()

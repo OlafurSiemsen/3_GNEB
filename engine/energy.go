@@ -26,7 +26,7 @@ func registerEnergy(term func() float64, dens func(*data.Slice)) {
 }
 
 func CalculateTotalImageEnergies(mag_variadic ...*magnetization) {
-	var mag *magnetization
+	var mag *magnetization // TODO?: change to image indeces
 	switch len(mag_variadic) {
 	case 0:
 		mag = &M
@@ -39,8 +39,9 @@ func CalculateTotalImageEnergies(mag_variadic ...*magnetization) {
 		// E_img already calculated
 		return
 	}
-	mag.E_img = make([]float64, M.N_images)
-	for ind_img := range M.N_images {
+	n_images := M.GetNImages()
+	mag.E_img = make([]float64, n_images)
+	for ind_img := range n_images {
 		stored_magnetization_ptr := M.buffer_ // We store a pointer to the original magnetization...
 		mag.buffer_ = M.buffer_.SubSlice(ind_img)
 		mag.E_img[ind_img] = GetTotalEnergy()
@@ -59,7 +60,8 @@ func GetMaxImageEnergy(mag_variadic ...*magnetization) float64 {
 	default:
 		panic("Please pass either 0 or 1 magnetization for GNEB calculation")
 	}
-	if mag.N_images != 1 {
+	n_images := M.GetNImages()
+	if n_images != 1 {
 		if !mag.E_img_calc {
 			CalculateTotalImageEnergies(mag)
 		}

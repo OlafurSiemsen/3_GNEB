@@ -8,7 +8,6 @@ import (
 // Projects each vector in a to be orthogonal to corresponding vector in b
 // Assumes vectors in b are normalized
 // dst[ith cell] = a[ith cell] - (dot(a[ith cell],b[ith cell]) * b[ith cell]
-// see function Global_Orthogonalize
 // see file://./orthogonalize.cu
 func Orthogonalize(dst, a, b *data.Slice) {
 	util.Argument(dst.NComp() == 3 && a.NComp() == 3 && b.NComp() == 3)

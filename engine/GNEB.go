@@ -37,7 +37,7 @@ func InterpolateMagnetization(min_index, max_index int) {
 // Takes a data.Slice with multiple images and overwrites the images between
 // two image indeces with linear interpolation. If no indeces are specified, the images
 // between the first and last are interpolated.
-func Interpolate(dst *data.Slice, ind_image_variadic ...int) {
+func Interpolation(dst *data.Slice, ind_image_variadic ...int) {
 	num_images_specified := len(ind_image_variadic)
 	var min_index, max_index int
 	switch num_images_specified {
@@ -196,13 +196,19 @@ func CalculateTangents(mag_variadic ...*magnetization) {
 	default:
 		panic("Please pass either 0 or 1 magnetization for tangent calculation")
 	}
+	if mag.tangent_calc {
+		// Tangents are already calculated
+		return
+	}
 	if !mag.E_img_calc {
+		// Energies are required to calculate tangents
 		CalculateTotalImageEnergies(mag)
 	}
 	E_img := mag.E_img
 	tangent_slice := mag.tangent_buffer_
 	mag_slice := mag.buffer_
 	n_images := mag_slice.N_images
+
 	for ind_img := 1; ind_img < n_images-1; ind_img++ {
 		E_np1 := E_img[ind_img+1]
 		E_n := E_img[ind_img]
@@ -230,12 +236,15 @@ func CalculateTangents(mag_variadic ...*magnetization) {
 				// fwd diff * dE_min + bkwd diff * dE_max
 				cuda.Madd2(tangent_slice.SubSlice(ind_img), fwd_diff_slice, bkwd_diff_slice, min_delta_E, max_delta_E)
 			default:
-				//something?
+				// fwd diff + bkwd diff
+				avg_delta_E := max_delta_E // In this case max_delta_E == min_delta_E
+				cuda.Madd2(tangent_slice.SubSlice(ind_img), fwd_diff_slice, bkwd_diff_slice, avg_delta_E, avg_delta_E)
 			}
 			cuda.Recycle(fwd_diff_slice)
 			cuda.Recycle(bkwd_diff_slice)
 		}
 	}
+	mag.tangent_calc = true
 	mag.geodesic_tangents_calc = false
 }
 
@@ -255,6 +264,9 @@ func ProjectTangents(mag_variadic ...*magnetization) {
 	if mag.geodesic_tangents_calc {
 		// Tangents are already projected
 		return
+	}
+	if !mag.tangent_calc {
+		CalculateTangents(mag)
 	}
 	tangent_slice := mag.tangent_buffer_
 	mag_slice := mag.buffer_
@@ -288,13 +300,9 @@ func CalculateGeodesicDistances(mag_variadic ...*magnetization) {
 		img_np1 := mag_slice.SubSlice(ind_img + 1)
 
 		cuda.CrossProduct(cross_prod_slice, img_n, img_np1)
-
 		cuda.Veclen(cross_prod_norm_slice, cross_prod_slice)
-
 		cuda.DotProduct(dot_prod_slice, 1, img_n, img_np1)
-
 		cuda.Atan2(tot_angle_slice, cross_prod_norm_slice, dot_prod_slice)
-
 		mag.Geodesic_distances[ind_img] = math.Sqrt(float64(cuda.ReduceSquareSum(tot_angle_slice)))
 	}
 	cuda.Recycle(cross_prod_slice)
@@ -304,41 +312,25 @@ func CalculateGeodesicDistances(mag_variadic ...*magnetization) {
 	mag.Geodesic_distances_calc = true
 }
 
-// Transforms the real force (energy gradient) to GNEB force according to eq. 14 of https://doi.org/10.1016/j.cpc.2015.07.001.
-func GNEBForceTransformation(energy_gradient *data.Slice, kappa []float32, mag_variadic ...*magnetization) {
-	var mag *magnetization
-	switch len(mag_variadic) {
-	case 0:
-		mag = &M
-	case 1:
-		mag = mag_variadic[0]
-	default:
-		panic("Please pass either 0 or 1 magnetization for GNEB calculation")
-	}
-	mag_slice := mag.buffer_
-	tangent_slice := mag.tangent_buffer_
-	n_images := mag.N_images
-
-	// Project energy real force orthogonal to
-	cuda.Global_Orthogonalize(energy_gradient, energy_gradient, tangent_slice)
-	// Generate elastic forces
-	elastic_force_slice := cuda.Buffer(3, mag_slice.Size(), n_images)
-	CalculateGeodesicElasticForces(elastic_force_slice, energy_gradient, kappa, mag)
-	cuda.Add(energy_gradient, energy_gradient, elastic_force_slice)
-	// Cleanup
-	cuda.Recycle(elastic_force_slice)
-}
-
 // Calculates the total GNEB force according to eq. 12 of https://doi.org/10.1016/j.cpc.2015.07.001.
 func CalculateGeodesicElasticForces(geodesic_elastic_force *data.Slice, energy_gradient *data.Slice, kappa []float32, mag *magnetization) {
+	if !mag.tangent_calc {
+		CalculateTangents(mag)
+	}
+	if !mag.geodesic_tangents_calc {
+		ProjectTangents(mag)
+	}
+	if !mag.Geodesic_distances_calc {
+		CalculateGeodesicDistances(mag)
+	}
 	mag_slice := mag.buffer_
 	tangent_slice := mag.tangent_buffer_
 	n_images := mag_slice.N_images
 	switch len(kappa) {
 	case 1:
-		kappa = make([]float32, n_images-1)
+		// kappa = make([]float32, n_images-1)
 		for ind := 1; ind < n_images-1; ind++ {
-			kappa[ind] = kappa[0]
+			kappa = append(kappa, kappa[0])
 		}
 	case n_images - 1:
 	default:
@@ -354,5 +346,36 @@ func CalculateGeodesicElasticForces(geodesic_elastic_force *data.Slice, energy_g
 	}
 	cuda.Add(geodesic_elastic_force, geodesic_elastic_force, elastic_force_slice)
 
+	cuda.Recycle(elastic_force_slice)
+}
+
+// Transforms the real force (energy gradient) to GNEB force according to eq. 14 of https://doi.org/10.1016/j.cpc.2015.07.001.
+func GNEBForceTransformation(energy_gradient *data.Slice, kappa []float32, mag_variadic ...*magnetization) {
+	var mag *magnetization
+	switch len(mag_variadic) {
+	case 0:
+		mag = &M
+	case 1:
+		mag = mag_variadic[0]
+	default:
+		panic("Please pass either 0 or 1 magnetization for GNEB calculation")
+	}
+	mag_slice := mag.buffer_
+	tangent_slice := mag.tangent_buffer_
+	n_images := mag.GetNImages()
+
+	// Project energy real force orthogonal to path
+	for ind_img := 0; ind_img < n_images; ind_img++ {
+		if FixEndImages && (ind_img == 0 || ind_img == n_images-1) {
+			continue
+		}
+		cuda.Global_Orthogonalize(energy_gradient.SubSlice(ind_img), energy_gradient.SubSlice(ind_img), tangent_slice.SubSlice(ind_img))
+	}
+	// cuda.Global_Orthogonalize(energy_gradient, energy_gradient, tangent_slice)
+	// Generate elastic forces
+	elastic_force_slice := cuda.Buffer(3, mag_slice.Size(), n_images)
+	CalculateGeodesicElasticForces(elastic_force_slice, energy_gradient, kappa, mag)
+	cuda.Add(energy_gradient, energy_gradient, elastic_force_slice)
+	// Cleanup
 	cuda.Recycle(elastic_force_slice)
 }

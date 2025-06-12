@@ -18,6 +18,8 @@ var (
 	//MaxForce          = 100.0	// TODO: maximal allowed force???
 	DmSamplesVPO int     = 10    // number of dm to keep for convergence check
 	StopMaxDmVPO float64 = 1e-6  // stop minimizer if sampled dm is smaller than this
+	MinimizePath bool    = true  // True if the path should be minimized, false if each image is minimized seperately
+	FixEndImages bool    = true  // True if the first and last images are not to be modified
 	AdvanceTime  bool    = false // Whether to increment time globally - time is reset at the end
 )
 
@@ -63,11 +65,10 @@ func (r *fifoRingVPO) Max() float64 {
 
 // objects that need to be stored for next iteration step
 type VPOMinimizer struct {
-	GNEB_kappa   []float32   // Spring constants for the inter-image elastic forces
-	MinimizePath bool        // True if the path should be minimized, false if each image is minimized seperately
-	f            *data.Slice // force
-	v            *data.Slice // velocity
-	lastDm       fifoRingVPO
+	GNEB_kappa []float32   // Spring constants for the inter-image elastic forces
+	f          *data.Slice // force
+	v          *data.Slice // velocity
+	lastDm     fifoRingVPO
 }
 
 // VPOMinimizer step
@@ -81,7 +82,7 @@ func (mini *VPOMinimizer) Step() {
 	if mini.f == nil { // make sure this is not empty upon first usage
 		mini.f = cuda.Buffer(3, size, n_images)
 		SetEffectiveField(mini.f, &M)
-		if mini.MinimizePath {
+		if n_images > 1 && MinimizePath {
 			GNEBForceTransformation(mini.f, mini.GNEB_kappa, &M)
 		}
 		cuda.Orthogonalize(mini.f, mini.f, mag_slice)
@@ -89,21 +90,21 @@ func (mini *VPOMinimizer) Step() {
 
 	// Initialize velocity to 0
 	if mini.v == nil {
-		mini.v = cuda.Buffer(3, size)
+		mini.v = cuda.Buffer(3, size, n_images)
 		cuda.Zero3(mini.v)
 	}
 
 	// Update and increment index on force
 	SetEffectiveField(mini.f, &M)
-	if mini.MinimizePath {
+	if n_images > 1 && MinimizePath {
 		GNEBForceTransformation(mini.f, mini.GNEB_kappa, &M)
 	}
 	cuda.Orthogonalize(mini.f, mini.f, mag_slice)
 
 	// Convergence check
-	m_nm1 := cuda.Buffer(3, size) // allocate memory
-	defer cuda.Recycle(m_nm1)     // purge once this function ends
-	data.Copy(m_nm1, mag_slice)   // copy the current magnetization to m0
+	m_nm1 := cuda.Buffer(3, size, n_images) // allocate memory
+	defer cuda.Recycle(m_nm1)               // purge once this function ends
+	data.Copy(m_nm1, mag_slice)             // copy the current magnetization to m0
 
 	// Update and increment index on velocity
 	cuda.Madd2(mini.v, mini.v, mini.f, 1, float32(recip2mVPO))
@@ -136,9 +137,7 @@ func (mini *VPOMinimizer) Step() {
 	err := mini.lastDm.Max()
 	setLastErr(err) // report maxDm to user as LastErr
 
-	// adjust next time step
-	if AdvanceTime { // mindt check to avoid infinite loop
-		// step OK
+	if AdvanceTime {
 		Time += Dt_si
 	}
 }
@@ -162,14 +161,14 @@ func VPOMinimize() {
 	relaxing = true // disable temperature noise
 
 	// ...to restore them later. Read as "defer ..." = "when function ends, do ..."
-	defer func() {
-		SetSolver(prevType)
-		FixDt = prevFixDt
-		Precess = prevPrecess
-		Time = t0
+	// defer func() {
+	// 	SetSolver(prevType)
+	// 	FixDt = prevFixDt
+	// 	Precess = prevPrecess
+	// 	Time = t0
 
-		relaxing = false
-	}()
+	// 	relaxing = false
+	// }()
 
 	// disable precession for torque calculation
 	Precess = false
@@ -181,9 +180,10 @@ func VPOMinimize() {
 
 	// set stepper to the VPOMinimizer
 	mini := VPOMinimizer{
-		f:      nil,
-		v:      nil,
-		lastDm: FifoRingVPO(DmSamplesVPO)}
+		GNEB_kappa: []float32{0.1},
+		f:          nil,
+		v:          nil,
+		lastDm:     FifoRingVPO(DmSamplesVPO)}
 	stepper = &mini
 
 	// break condition: change of magnetization is below a reasonable threshold
@@ -193,4 +193,10 @@ func VPOMinimize() {
 
 	RunWhile(cond)
 	pause = true
+	SetSolver(prevType)
+	FixDt = prevFixDt
+	Precess = prevPrecess
+	Time = t0
+
+	relaxing = false
 }

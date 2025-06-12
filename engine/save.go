@@ -66,7 +66,8 @@ func SaveAs(q Quantity, fname string, ind_image_variadic ...int) {
 		fname = OD() + fname // don't clean, turns http:// in http:/
 	}
 	images_specified := len(ind_image_variadic) != 0 // Checks if the user specified images to save
-	if M.N_images == 1 {                             // Just the normal MuMax way
+	n_images := M.GetNImages()
+	if n_images == 1 { // Just the normal MuMax way
 		if path.Ext(fname) == "" {
 			fname += ("." + SuffixFromOutputFormat[outputFormat])
 		}
@@ -76,8 +77,8 @@ func SaveAs(q Quantity, fname string, ind_image_variadic ...int) {
 		data := buffer.HostCopy() // must be copy (async io)
 		queOutput(func() { saveAs_sync(fname, data, info, outputFormat) })
 	} else { // Save multiple images
-		stored_magnetization_ptr := M.buffer_                  // We store a pointer to the original magnetization...
-		for it_image := 0; it_image < M.N_images; it_image++ { // ...iterate over the images...
+		stored_magnetization_ptr := M.buffer_                // We store a pointer to the original magnetization...
+		for it_image := 0; it_image < n_images; it_image++ { // ...iterate over the images...
 			if images_specified && !slices.Contains(ind_image_variadic, it_image) { // Skips images that weren't specified by user
 				continue
 			}
@@ -110,14 +111,15 @@ func SnapshotAs(q Quantity, fname string, ind_image_variadic ...int) {
 		fname += ("." + SuffixFromOutputFormat[outputFormat])
 	}
 	images_specified := len(ind_image_variadic) != 0 // Checks if the user specified images to save
-	if M.N_images == 1 {
+	n_images := M.GetNImages()
+	if n_images == 1 {
 		s := ValueOf(q)
 		defer cuda.Recycle(s)
 		data := s.HostCopy() // must be copy (asyncio)
 		queOutput(func() { snapshot_sync(fname, data) })
 	} else {
-		stored_magnetization_ptr := M.buffer_                  // We store a pointer to the original magnetization...
-		for it_image := 0; it_image < M.N_images; it_image++ { // ...iterate over the images...
+		stored_magnetization_ptr := M.buffer_                // We store a pointer to the original magnetization...
+		for it_image := 0; it_image < n_images; it_image++ { // ...iterate over the images...
 			if images_specified && !slices.Contains(ind_image_variadic, it_image) { // Skips images that weren't specified by user
 				continue
 			}

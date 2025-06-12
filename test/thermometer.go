@@ -64,7 +64,7 @@ func main() {
 	nstep := 0.0
 	PostStep(func() {
 		nstep += 1
-		SetDemagField(h)
+		SetDemagField(h, &M)
 		AddExchangeField(h)
 		AddAnisotropyField(h)
 		cuda.CrossProduct(mxh, m, h)

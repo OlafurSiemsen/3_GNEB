@@ -38,7 +38,7 @@ func (rk *RK23) Step() {
 
 	// first step ever: one-time k1 init and eval
 	if rk.k1 == nil {
-		rk.k1 = cuda.NewSlice(3, size, M.N_images)
+		rk.k1 = cuda.NewSlice(3, size, n_images)
 		torqueFn(rk.k1)
 	}
 

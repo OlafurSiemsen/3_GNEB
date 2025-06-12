@@ -59,13 +59,13 @@ func SetMesh(Nx, Ny, Nz int, cellSizeX, cellSizeY, cellSizeZ float64, pbcx, pbcy
 
 	sizeChanged := globalmesh_.Size() != [3]int{Nx, Ny, Nz}
 	cellSizeChanged := globalmesh_.CellSize() != [3]float64{cellSizeX, cellSizeY, cellSizeZ}
-	nimagesChanged := M.N_images != n_images
+	nimagesChanged := M.GetNImages() != n_images
 	pbc := []int{pbcx, pbcy, pbcz}
 
 	if globalmesh_.Size() == [3]int{0, 0, 0} {
 		// first time mesh is set
 		globalmesh_ = *data.NewMesh(Nx, Ny, Nz, cellSizeX, cellSizeY, cellSizeZ, pbc...)
-		M.N_images = n_images
+		M.SetNImages(n_images)
 		M.alloc()
 		regions.alloc()
 	} else {
@@ -98,7 +98,7 @@ func SetMesh(Nx, Ny, Nz int, cellSizeX, cellSizeY, cellSizeZ float64, pbcx, pbcy
 		}
 
 		if nimagesChanged {
-			M.N_images = n_images
+			M.SetNImages(n_images)
 			M.alloc()
 		}
 	}

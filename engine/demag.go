@@ -12,7 +12,7 @@ import (
 var (
 	Msat        = NewScalarParam("Msat", "A/m", "Saturation magnetization")
 	M_full      = NewVectorField("m_full", "A/m", "Unnormalized magnetization", SetMFull)
-	B_demag     = NewVectorField("B_demag", "T", "Magnetostatic field", Curried_SetEffectiveField(&M))
+	B_demag     = NewVectorField("B_demag", "T", "Magnetostatic field", Curried_SetDemagField(&M))
 	Edens_demag = NewScalarField("Edens_demag", "J/m3", "Magnetostatic energy density", AddEdens_demag)
 	E_demag     = NewScalarValue("E_demag", "J", "Magnetostatic energy", GetDemagEnergy)
 
@@ -30,6 +30,12 @@ func init() {
 	DeclVar("EnableDemag", &EnableDemag, "Enables/disables demag (default=true)")
 	DeclVar("DemagAccuracy", &DemagAccuracy, "Controls accuracy of demag kernel")
 	registerEnergy(GetDemagEnergy, AddEdens_demag)
+}
+
+// Nasty currying to avoid having to refactor function NewVectorField
+func Curried_SetDemagField(mag *magnetization) func(dst *data.Slice) {
+	f := func(dst *data.Slice) { SetDemagField(dst, mag) }
+	return f
 }
 
 // Sets dst to the current demag field
