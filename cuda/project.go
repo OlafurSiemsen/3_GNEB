@@ -21,7 +21,7 @@ func Orthogonalize(dst, a, b *data.Slice) {
 		N, cfg)
 }
 
-// Projects a onto b
+// Projects each vector in a onto corresponding vector in b
 // Assumes vectors in b are normalized
 // dst[ith cell] = (dot(a[ith cell],b[ith cell])) * b[ith cell]
 // see file://./projectonto.cu
@@ -37,7 +37,7 @@ func ProjectOnto(dst, a, b *data.Slice) {
 		N, cfg)
 }
 
-// Projects the vector a to be orthogonal to b
+// Projects each vector in a to be orthogonal to corresponsing vector b
 // Note that this is the dot product on the configuration space of a and b
 // Assumes b in normalized
 // dst[ith cell] = a[ith cell] - (sum(dot(a[ith cell],b[ith cell])))*b[ith cell]

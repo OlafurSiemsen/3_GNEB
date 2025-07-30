@@ -134,7 +134,7 @@ func AngularInterpolation(dst *data.Slice, normalize bool, ind_image_variadic ..
 	cuda.Recycle(sin_slice)
 }
 
-// TODO?: Make this into an all-cuda function
+// TODO?: Make this into an all-cuda function, rework doc string
 // Implements Rodrigues' axis/angle rotation formula.
 // Takes in src and rotation_axes, 3d slices and slices containing the cos and sin
 // of the rotation angles. Rotates the vectors in src around the vectors in rotation_axes
@@ -158,19 +158,19 @@ func RotateSlice(dst *data.Slice, src *data.Slice, rotation_axes *data.Slice, co
 	scalar_term := cuda.Buffer(1, dst.Size())
 
 	// dst = src * cos(angle)
-	cuda.VecScale(dst, src, cos_angle)
+	cuda.VecVecScale(dst, src, cos_angle)
 	// dst = dst + (rotation_axes x src) * sin(angle)
 	cuda.CrossProduct(vec_term, rotation_axes, src)
-	cuda.VecScale(vec_term, vec_term, sin_angle)
+	cuda.VecVecScale(vec_term, vec_term, sin_angle)
 	cuda.Add(dst, dst, vec_term)
 	// dst = dst + rotation_axes * (rotation_axes · src) * (1 - cos(angle))
 	// note: versine(angle) = 1 - cos(angle)
-	// note: this term can be omitted iff the rotation vector is orthogonal to the
-	// ending vectors
+	// note: this term can be omitted iff the rotation axis is orthogonal to the
+	// vectors to be rotated
 	if versine_term {
 		cuda.AddDotProduct(scalar_term, 1, rotation_axes, src) // scalar_term = scalar_term {nil at this point} + (rotation_axes · src)
 		cuda.Mul(scalar_term, scalar_term, versine_angle)      // scalar_term = scalar_term * (1-cos(angle))
-		cuda.VecScale(vec_term, rotation_axes, scalar_term)    // vec_term = rotation_axes * (rotation_axes · src) * (1 - cos(angle))
+		cuda.VecVecScale(vec_term, rotation_axes, scalar_term) // vec_term = rotation_axes * (rotation_axes · src) * (1 - cos(angle))
 		cuda.Add(dst, dst, vec_term)                           // dst = dst + rotation_axes * (rotation_axes · src) * (1 - cos(angle))
 	}
 
@@ -272,6 +272,8 @@ func ProjectTangents(mag_variadic ...*magnetization) {
 	mag_slice := mag.buffer_
 	// n_images := mag_slice.N_images
 	cuda.Orthogonalize(tangent_slice, tangent_slice, mag_slice)
+	norm := cuda.Dot(tangent_slice, tangent_slice)
+	cuda.Scale(tangent_slice, tangent_slice, norm)
 	mag.geodesic_tangents_calc = true
 }
 
@@ -313,7 +315,7 @@ func CalculateGeodesicDistances(mag_variadic ...*magnetization) {
 }
 
 // Calculates the total GNEB force according to eq. 12 of https://doi.org/10.1016/j.cpc.2015.07.001.
-func CalculateGeodesicElasticForces(geodesic_elastic_force *data.Slice, energy_gradient *data.Slice, kappa []float32, mag *magnetization) {
+func CalculateGeodesicElasticForces(geodesic_elastic_force *data.Slice, kappa []float32, mag *magnetization) {
 	if !mag.tangent_calc {
 		CalculateTangents(mag)
 	}
@@ -338,11 +340,16 @@ func CalculateGeodesicElasticForces(geodesic_elastic_force *data.Slice, energy_g
 	}
 
 	elastic_force_slice := cuda.Buffer(3, mag_slice.Size(), n_images)
+	cuda.Zero(elastic_force_slice)
 	for ind_img := 1; ind_img < n_images-1; ind_img++ {
+		if FixEndImages && (ind_img == 0 || ind_img == n_images-1) {
+			continue
+		}
 		elastic_force_n := elastic_force_slice.SubSlice(ind_img)
 		tangent_n := tangent_slice.SubSlice(ind_img)
 		coeff := kappa[ind_img] * float32(mag.Geodesic_distances[ind_img]-mag.Geodesic_distances[ind_img-1])
 		cuda.Scale(elastic_force_n, tangent_n, coeff)
+		cuda.Orthogonalize(elastic_force_slice, elastic_force_slice, mag_slice)
 	}
 	cuda.Add(geodesic_elastic_force, geodesic_elastic_force, elastic_force_slice)
 
@@ -365,16 +372,11 @@ func GNEBForceTransformation(energy_gradient *data.Slice, kappa []float32, mag_v
 	n_images := mag.GetNImages()
 
 	// Project energy real force orthogonal to path
-	for ind_img := 0; ind_img < n_images; ind_img++ {
-		if FixEndImages && (ind_img == 0 || ind_img == n_images-1) {
-			continue
-		}
-		cuda.Global_Orthogonalize(energy_gradient.SubSlice(ind_img), energy_gradient.SubSlice(ind_img), tangent_slice.SubSlice(ind_img))
-	}
-	// cuda.Global_Orthogonalize(energy_gradient, energy_gradient, tangent_slice)
+	cuda.Orthogonalize(energy_gradient, energy_gradient, mag_slice) //TODO: Wrong order? unnecesasary?
+	cuda.Global_Orthogonalize(energy_gradient, energy_gradient, tangent_slice)
 	// Generate elastic forces
 	elastic_force_slice := cuda.Buffer(3, mag_slice.Size(), n_images)
-	CalculateGeodesicElasticForces(elastic_force_slice, energy_gradient, kappa, mag)
+	CalculateGeodesicElasticForces(elastic_force_slice, kappa, mag)
 	cuda.Add(energy_gradient, energy_gradient, elastic_force_slice)
 	// Cleanup
 	cuda.Recycle(elastic_force_slice)

@@ -21,12 +21,12 @@ cotangentspacerotation(
         float3 m0 = {m0x[i], m0y[i], m0z[i]};
         float3 v0 = {v0x[i], v0y[i], v0z[i]};
 
-        const float SIN = dot(m,v0);
-        const float COS = dot(m,m0);
+        const float m_DOT_v0 = dot(m,v0);
+        const float m_DOT_m0 = dot(m,m0);
 
-        vx[i] = v0x[i]*COS-m0x[i]*SIN;
-        vy[i] = v0y[i]*COS-m0y[i]*SIN;
-        vz[i] = v0z[i]*COS-m0z[i]*SIN;
+        vx[i] = m_DOT_m0*v0x[i]-m_DOT_v0*m0x[i];
+        vy[i] = m_DOT_m0*v0y[i]-m_DOT_v0*m0y[i];
+        vz[i] = m_DOT_m0*v0z[i]-m_DOT_v0*m0z[i];
 
     }
 }

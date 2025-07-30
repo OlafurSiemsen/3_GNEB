@@ -48,7 +48,7 @@ func Scale(dst *data.Slice, src *data.Slice, factor float32) {
 // if factor.NComp() == dst.NComp()
 //
 //	dst[nth comp][ith cell] = src[nth comp][ith cell] * factor[nth comp][ith cell]
-func VecScale(dst *data.Slice, src *data.Slice, factor *data.Slice) {
+func VecVecScale(dst *data.Slice, src *data.Slice, factor *data.Slice) {
 	N := dst.Len()
 	nComp := dst.NComp()
 	util.Assert(src.Len() == N)

@@ -18,7 +18,7 @@ func AddDotProduct(dst *data.Slice, prefactor float32, a, b *data.Slice) {
 		N, cfg)
 }
 
-// dst = prefactor * dot(a, b), as used for energy density
+// dst = prefactor * dot(a, b)
 func DotProduct(dst *data.Slice, prefactor float32, a, b *data.Slice) {
 	util.Argument(dst.NComp() == 1 && a.NComp() == 3 && b.NComp() == 3)
 	util.Argument(dst.Len() == a.Len() && dst.Len() == b.Len())

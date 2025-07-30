@@ -140,7 +140,7 @@ func insertImageIndex(i_filename string, ind_image int) string {
 	if t_ext == "" {
 		o_filename = (i_filename + imageIndexSuffix(ind_image) + "." + SuffixFromOutputFormat[outputFormat])
 	} else {
-		o_filename = (i_filename[:len(i_filename)-len(t_ext)-1] + imageIndexSuffix(ind_image) + t_ext)
+		o_filename = (i_filename[:len(i_filename)-len(t_ext)] + imageIndexSuffix(ind_image) + t_ext)
 	}
 	return o_filename
 }

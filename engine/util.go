@@ -231,7 +231,7 @@ func rmln(a string) string {
 }
 
 // Prints a slice simply
-func PrintSlice(i_slice *data.Slice, preamble ...string) {
+func PrintSlice(i_slice *data.Slice, preamble ...any) {
 	gridsize := i_slice.Size()
 	n_images := i_slice.N_images
 	host_slice := i_slice.HostCopy()
@@ -254,11 +254,37 @@ func PrintSlice(i_slice *data.Slice, preamble ...string) {
 	}
 }
 
-// Prints a slice prettily
-func PrettyPrintSlice(i_slice *data.Slice) {
+func LogSlice(i_slice *data.Slice, preamble ...any) {
 	gridsize := i_slice.Size()
 	n_images := i_slice.N_images
 	host_slice := i_slice.HostCopy()
+	if len(preamble) != 0 {
+		LogOut(preamble)
+	} else {
+	}
+	for iComp := 0; iComp < i_slice.NComp(); iComp++ {
+		for iIm := 0; iIm < n_images; iIm++ {
+			for iZ := 0; iZ < gridsize[2]; iZ++ {
+				for iY := 0; iY < gridsize[1]; iY++ {
+					for iX := 0; iX < gridsize[0]; iX++ {
+						LogOut(strconv.FormatFloat(host_slice.Get(iComp, iX, iY, iZ, iIm), 'f', 6, 32) + "	")
+					}
+				}
+			}
+		}
+	}
+}
+
+// Prints a slice prettily
+func PrettyPrintSlice(i_slice *data.Slice, preamble ...string) {
+	gridsize := i_slice.Size()
+	n_images := i_slice.N_images
+	host_slice := i_slice.HostCopy()
+	if len(preamble) != 0 {
+		fmt.Println(preamble)
+	} else {
+		fmt.Println("")
+	}
 	for iIm := 0; iIm < n_images; iIm++ {
 		fmt.Println("Image " + strconv.Itoa(iIm) + ":")
 		for iComp := 0; iComp < i_slice.NComp(); iComp++ {
