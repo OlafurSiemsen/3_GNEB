@@ -6,7 +6,7 @@ import (
 )
 
 // dst[i] = |a[i]|
-func Veclen(dst *data.Slice, a *data.Slice) {
+func VecNorm(dst *data.Slice, a *data.Slice) {
 	util.Argument(dst.NComp() == 1 && a.NComp() == 3)
 	util.Argument(dst.Len() == a.Len())
 

@@ -97,7 +97,7 @@ func AngularInterpolation(dst *data.Slice, normalize bool, ind_image_variadic ..
 	cuda.CrossProduct(cross_prod_slice, start_slice, end_slice)
 
 	cross_prod_norm_slice := cuda.Buffer(1, dst.Size())
-	cuda.Veclen(cross_prod_norm_slice, cross_prod_slice)
+	cuda.VecNorm(cross_prod_norm_slice, cross_prod_slice)
 
 	dot_prod_slice := cuda.Buffer(1, dst.Size())
 	cuda.DotProduct(dot_prod_slice, 1, start_slice, end_slice)
@@ -302,7 +302,7 @@ func CalculateGeodesicDistances(mag_variadic ...*magnetization) {
 		img_np1 := mag_slice.SubSlice(ind_img + 1)
 
 		cuda.CrossProduct(cross_prod_slice, img_n, img_np1)
-		cuda.Veclen(cross_prod_norm_slice, cross_prod_slice)
+		cuda.VecNorm(cross_prod_norm_slice, cross_prod_slice)
 		cuda.DotProduct(dot_prod_slice, 1, img_n, img_np1)
 		cuda.Atan2(tot_angle_slice, cross_prod_norm_slice, dot_prod_slice)
 		mag.Geodesic_distances[ind_img] = math.Sqrt(float64(cuda.ReduceSquareSum(tot_angle_slice)))

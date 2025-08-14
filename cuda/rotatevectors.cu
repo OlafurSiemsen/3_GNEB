@@ -2,7 +2,7 @@
 #include "float3.h"
 
 // Rotates a towards b by an angle of dt*norm(b)
-// TODO: rename
+// TODO: rename, refactor final assignment to cancel dt?
 extern "C" __global__ void
 rotatevectors(
             float* __restrict__ ax,  float* __restrict__  ay,  float* __restrict__ az,

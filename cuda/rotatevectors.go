@@ -5,6 +5,7 @@ import (
 	"github.com/mumax/3/util"
 )
 
+// See file://./rotatevectors.cu
 func RotateVectors(a, b *data.Slice, dt float32) {
 
 	util.Argument(a.NComp() == 3 && b.NComp() == 3)

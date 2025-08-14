@@ -307,13 +307,18 @@ func PrettyPrintSlice(i_slice *data.Slice, preamble ...string) {
 // Compares two slices, if print_only then it just prints the differences,
 // otherwise it panics when the first value that differs by more than
 // eps(float32) is encountered
-func CompareSlices(slice1 *data.Slice, slice2 *data.Slice, print_only bool) {
+func CompareSlices(slice1 *data.Slice, slice2 *data.Slice, print_only bool, preamble ...any) {
 	nComps := slice1.NComp()
 	gridsize := slice1.Size()
 	n_images := slice1.N_images
 	host_test_slice := slice1.HostCopy()
 	host_premade_slice := slice2.HostCopy()
 	tol := 1e-6
+	if len(preamble) != 0 {
+		fmt.Println(preamble)
+	} else {
+		fmt.Println("")
+	}
 	fmt.Println("Im,Comp,X,Y,Z: ")
 	for iIm := 0; iIm < n_images; iIm++ {
 		for iZ := 0; iZ < gridsize[2]; iZ++ {
@@ -332,12 +337,12 @@ func CompareSlices(slice1 *data.Slice, slice2 *data.Slice, print_only bool) {
 							if math.Abs(t_diff) < tol {
 								fmt.Print(t_msg)
 								fmt.Print(" diff:")
-								fmt.Printf("%+.6f", t_diff)
+								fmt.Printf("%+.6E", t_diff)
 								fmt.Print(" PASS\n")
 							} else {
 								fmt.Print(t_msg)
 								fmt.Print(" diff:")
-								fmt.Printf("%+.6f", t_diff)
+								fmt.Printf("%+.6E", t_diff)
 								fmt.Print("<-- FAIL\n")
 							}
 						} else {
@@ -349,6 +354,7 @@ func CompareSlices(slice1 *data.Slice, slice2 *data.Slice, print_only bool) {
 			}
 		}
 	}
+	fmt.Print("\n\n")
 }
 
 const (
