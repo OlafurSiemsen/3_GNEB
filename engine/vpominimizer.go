@@ -14,29 +14,31 @@ import (
 var (
 	massVPO     = 1e-0 // TODO: massVPO of the ??? What units? What is reasonable here?
 	recip2mVPO  = 0.5 / massVPO
-	stepsizeVPO = 0.01 // dt effective time step
+	stepsizeVPO = 0.5 // dt effective time step
 	//MaxForce          = 100.0	// TODO: maximal allowed force???
 	DmSamplesVPO int       = 10             // number of dm to keep for convergence check
 	StopMaxDmVPO float64   = 1e-6           // stop minimizer if sampled dm is smaller than this
 	FSamplesVPO  int       = 10             // Number of max F to keep for convergence check
 	StopMaxFVPO  float64   = 1e-8           // stop minimizer if sampled maximum force is smaller than this
-	MaxIterVPO   int       = 5000           // Maximum number of iterations
+	MaxIterVPO   int       = 10000          // Maximum number of iterations
 	MinimizePath bool      = true           // True if the path should be minimized, false if each image is minimized seperately
 	FixEndImages bool      = true           // True if the first and last images are not to be modified
 	AdvanceTime  bool      = false          // Whether to increment time globally - time is reset at the end
 	GNEB_kappa   []float32 = []float32{0.5} // Spring constants for the inter-image elastic forces
 
 	//Diagnostic outputs, TODO:Remove, or at least disable for performance
-	LastVPOForce    float64
-	MaxVPOForce     = NewScalarValue("maxVPOForce", "T", "Maximum VPO force, over all cells", GetMaxVPOForce)
-	LastVPOVelocity *data.Slice
-	VPOVelocity     = NewVectorField("VPOv", "", "Velocity as accumulated internally to VPO", GetVPOVelocity)
-	LastBeffperp    *data.Slice
-	B_eff_perp      = NewVectorField("B_eff_perp", "T", "Effective field that is cotangent to m", GetBeffperp)
-	Lastvdotf       *data.Slice
-	Vdotf           = NewScalarField("vdotf", "", "Dot(v,f) before rotation between cotangenet spaces", GetVdotF)
-	Lastvdotfrot    *data.Slice
-	Vdotfrot        = NewScalarField("vdotfrot", "", "Dot(v,f) after rotation between cotangenet spaces", GetVdotFrot)
+	LastVPOForce        float64
+	MaxVPOForce         = NewScalarValue("maxVPOForce", "T", "Maximum VPO force, over all cells", GetMaxVPOForce)
+	LastVPOVelocity     *data.Slice
+	VPOVelocity         = NewVectorField("VPOv", "", "Velocity as accumulated internally to VPO", GetVPOVelocity)
+	LastVPOVelocityNorm float64
+	VPOVelocityNorm     = NewScalarValue("VPOvNorm", "", "Norm Velocity as accumulated internally to VPO", GetVPOVelocityNorm)
+	LastBeffperp        *data.Slice
+	B_eff_perp          = NewVectorField("B_eff_perp", "T", "Effective field that is cotangent to m", GetBeffperp)
+	Lastvdotf           float64
+	Vdotf               = NewScalarValue("vdotf", "", "Dot(v,f) before rotation between cotangenet spaces", GetVdotF)
+	Lastvdotfrot        *data.Slice
+	Vdotfrot            = NewScalarField("vdotfrot", "", "Dot(v,f) after rotation between cotangenet spaces", GetVdotFrot)
 )
 
 // Initialization of the function. Can override variables.
@@ -81,8 +83,8 @@ func (r *fifoRingVPO) Max() float64 {
 
 // objects that need to be stored for next iteration step
 type VPOMinimizer struct {
-	f      *data.Slice // force n
-	fnp1   *data.Slice // force n+1
+	f_n    *data.Slice // force n
+	f_np1  *data.Slice // force n+1
 	v      *data.Slice // velocity
 	lastDm fifoRingVPO
 	lastF  fifoRingVPO
@@ -114,12 +116,11 @@ func (mini *VPOMinimizer) Step() {
 	defer cuda.Recycle(diag_vector_zero_slice)
 
 	// Initialize force to -\nabla B_eff
-	if mini.f == nil { // make sure this is not empty upon first usage
-		mini.f = cuda.Buffer(3, size, n_images)
+	if mini.f_n == nil { // make sure this is not empty upon first usage
+		mini.f_n = cuda.Buffer(3, size, n_images)
 		// Update and increment index on force
-		SetEffectiveField(mini.f, &M)
-		cuda.Orthogonalize(mini.f, mini.f, mag_slice)
-
+		SetEffectiveField(mini.f_n, &M)                   // f_n arbitrary
+		cuda.Orthogonalize(mini.f_n, mini.f_n, mag_slice) // f_n ⟂ m_n
 	}
 
 	// Initialize velocity to 0
@@ -128,48 +129,54 @@ func (mini *VPOMinimizer) Step() {
 		cuda.Zero3(mini.v)
 	}
 
-	maxF := cuda.MaxVecNorm(mini.f)
+	maxF := cuda.MaxVecNorm(mini.f_n)
 	mini.lastF.Add(maxF)
-	SetBeffperp(mini.f)
+	SetBeffperp(mini.f_n)
 	SetMaxVPOForce(maxF)
 	SetVPOVelocity(mini.v)
+	SetVPOVelocityNorm(float64(cuda.Dot(mini.v, mini.v)))
+	LogOut("Start of step ", NSteps)
+	LogOut("Lasterr: ", LastErr)
 
 	// Diagnostic block TODO: remove
-	cuda.DotProduct(diag_scalar_slice1, 1, mini.f, mag_slice)
-	CompareSlices(diag_scalar_slice1, diag_scalar_zero_slice, print_only, "m_n ⟂ f_n")
+	cuda.DotProduct(diag_scalar_slice1, 1, mini.f_n, mag_slice)
+	CompareSlices(diag_scalar_slice1, diag_scalar_zero_slice, print_only, "m_n ⟂ f_n at beginning of step")
 
 	if n_images > 1 && MinimizePath {
-		GNEBForceTransformation(mini.f, GNEB_kappa, &M)
+		GNEBForceTransformation(mini.f_n, GNEB_kappa, &M)
 	}
 
 	// Convergence check
 	// Store a copy of the magnetization for comparison and convergence check
-	// TODO: Possibly remove to save on memory, since we use VPO force instead
+	// TODO: Possibly remove to save on memory, since we want to use VPO force instead
 	m_n := cuda.Buffer(3, size, n_images)
 	defer cuda.Recycle(m_n)
 	data.Copy(m_n, mag_slice)
 	// Diagnostic block TODO: remove
 	cuda.DotProduct(diag_scalar_slice1, 1, m_n, mini.v)
-	CompareSlices(diag_scalar_slice1, diag_scalar_zero_slice, print_only, "m_n ⟂ v_n")
-	cuda.DotProduct(diag_scalar_slice1, 1, m_n, mini.f)
-	CompareSlices(diag_scalar_slice1, diag_scalar_zero_slice, print_only, "m_n ⟂ f_n")
+	CompareSlices(diag_scalar_slice1, diag_scalar_zero_slice, print_only, "m_n ⟂ v_n at beginning of step")
+	cuda.DotProduct(diag_scalar_slice1, 1, m_n, mini.f_n)
+	CompareSlices(diag_scalar_slice1, diag_scalar_zero_slice, print_only, "m_n ⟂ f_n at beginning of step")
+	cuda.CrossProduct(diag_vector_slice, mini.v, mini.f_n)
+	CompareSlices(diag_vector_slice, diag_vector_zero_slice, print_only, "v_n ∥ f_n before m update")
 
 	// Update m_n to m_{n+1}
 	vtilde := cuda.Buffer(3, size, n_images)
 	defer cuda.Recycle(vtilde)
-	cuda.Madd2(vtilde, mini.v, mini.f, 1, float32(recip2mVPO*stepsizeVPO))
+	cuda.Madd2(vtilde, mini.v, mini.f_n, 1, float32(recip2mVPO*stepsizeVPO))
 	cuda.RotateVectors(mag_slice, vtilde, float32(stepsizeVPO))
+	// TODO: this rotates each vector accoring to the length of the corresponding v vector - should this be the 'global norm instead?
 	// Since the magnetization of each image is changed, the quantities related to
 	// the path need to be recalculated
 	M.reset_calc_flags()
 
 	// Diagnostic block TODO: remove
-	cuda.CrossProduct(diag_vector_slice, mini.v, mini.f)
+	cuda.CrossProduct(diag_vector_slice, mini.v, mini.f_n)
 	CompareSlices(diag_vector_slice, diag_vector_zero_slice, print_only, "v_n ∥ f_n")
 	cuda.VecNorm(diag_scalar_slice1, mag_slice)
 	CompareSlices(diag_scalar_slice1, diag_scalar_one_slice, print_only, "|m|=1")
 	cuda.CrossProduct(diag_vector_slice, m_n, mag_slice)
-	cuda.DotProduct(diag_scalar_slice1, 1, diag_vector_slice, mini.f)
+	cuda.DotProduct(diag_scalar_slice1, 1, diag_vector_slice, mini.f_n)
 	CompareSlices(diag_scalar_slice1, diag_scalar_zero_slice, print_only, "f_n ∈ span(m_n, m_n+1)")
 	cuda.DotProduct(diag_scalar_slice1, 1, diag_vector_slice, mini.v)
 	CompareSlices(diag_scalar_slice1, diag_scalar_zero_slice, print_only, "f_n ∈ span(m_n, m_n+1)")
@@ -183,29 +190,33 @@ func (mini *VPOMinimizer) Step() {
 	// Diagnostic block TODO: remove
 	cuda.DotProduct(diag_scalar_slice2, 1, mini.v, mini.v)
 	CompareSlices(diag_scalar_slice1, diag_scalar_slice2, print_only, "|v_n|=|Rotate(v_n)|")
-	cuda.DotProduct(diag_scalar_slice1, 1, mini.f, mini.f)
+	cuda.DotProduct(diag_scalar_slice1, 1, mini.f_n, mini.f_n)
 
-	cuda.CotangentSpaceRotation(mini.f, mini.f, mag_slice, m_n)
+	cuda.CotangentSpaceRotation(mini.f_n, mini.f_n, mag_slice, m_n) // f_n ⟂ m_n+1,
 
 	// Diagnostic block TODO: remove
-	cuda.DotProduct(diag_scalar_slice2, 1, mini.f, mini.f)
+	cuda.DotProduct(diag_scalar_slice2, 1, mini.f_n, mini.f_n)
 	CompareSlices(diag_scalar_slice1, diag_scalar_slice2, print_only, "|f_n|=|Rotate(f_n)|")
 	cuda.DotProduct(diag_scalar_slice1, 1, mag_slice, mini.v)
 	CompareSlices(diag_scalar_slice1, diag_scalar_zero_slice, print_only, "m_n+1 ⟂ v_n after cotangent space rotation")
-	cuda.DotProduct(diag_scalar_slice1, 1, mag_slice, mini.f)
+	cuda.DotProduct(diag_scalar_slice1, 1, mag_slice, mini.f_n)
 	CompareSlices(diag_scalar_slice1, diag_scalar_zero_slice, print_only, "m_n+1 ⟂ f_n after cotangent space rotation")
-	cuda.DotProduct(diag_scalar_slice1, 1, diag_vector_slice, mini.f)
+	cuda.DotProduct(diag_scalar_slice1, 1, diag_vector_slice, mini.f_n)
 	CompareSlices(diag_scalar_slice1, diag_scalar_zero_slice, print_only, "f_n ∈ span(m_n, m_n+1) after cotangent space rotation")
 	cuda.DotProduct(diag_scalar_slice1, 1, diag_vector_slice, mini.v)
-	CompareSlices(diag_scalar_slice1, diag_scalar_zero_slice, print_only, "f_n ∈ span(m_n, m_n+1) after cotangent space rotation")
+	CompareSlices(diag_scalar_slice1, diag_scalar_zero_slice, print_only, "v_n ∈ span(m_n, m_n+1) after cotangent space rotation")
 
 	// Update v_n to v_{n+1}
-	mini.fnp1 = cuda.Buffer(3, size, n_images) // allocate memory
-	defer cuda.Recycle(mini.fnp1)              // purge once this function ends
-	SetEffectiveField(mini.fnp1, &M)
-	cuda.Orthogonalize(mini.fnp1, mini.fnp1, mag_slice)
+	mini.f_np1 = cuda.Buffer(3, size, n_images)
+	defer cuda.Recycle(mini.f_np1)
+	SetEffectiveField(mini.f_np1, &M)
+	cuda.Orthogonalize(mini.f_np1, mini.f_np1, mag_slice) // f_n+1 ⟂ m_n+1
 	fac := float32(stepsizeVPO * recip2mVPO)
-	cuda.Madd3(mini.v, mini.v, mini.f, mini.fnp1, 1, fac, fac)
+	cuda.Madd3(mini.v, mini.v, mini.f_n, mini.f_np1, 1, fac, fac)
+
+	// Diagnostic block TODO: remove
+	// cuda.DotProduct(diag_scalar_slice1, 1, mag_slice, mini.fnp1)
+	// CompareSlices(diag_scalar_slice1, diag_scalar_zero_slice, print_only, "m_n+1 ⟂ f_n+1")
 
 	// Diagnostic block TODO: remove
 	cuda.DotProduct(diag_scalar_slice1, 1, mag_slice, mini.v)
@@ -213,14 +224,23 @@ func (mini *VPOMinimizer) Step() {
 
 	// Factor for projection of velocity on force,
 	// sets velocity to 0 if v.f < 0
-	vDOTf := cuda.Dot(mini.v, mini.fnp1)
+	vDOTf := cuda.Dot(mini.v, mini.f_np1)
+	// Diagnostic block TODO: remove
+	SetVdotF(float64(vDOTf))
 	if vDOTf <= 0.0 {
 		cuda.Zero(mini.v)
 	} else {
-		cuda.Scale(mini.v, mini.fnp1, vDOTf/cuda.Dot(mini.fnp1, mini.fnp1))
+		cuda.Scale(mini.v, mini.f_np1, vDOTf/cuda.Dot(mini.f_np1, mini.f_np1))
 	}
-	data.Copy(mini.f, mini.fnp1)
+	data.Copy(mini.f_n, mini.f_np1)
 	// cuda.Orthogonalize(mini.v, mini.v, mag_slice) //check if necessary
+	// Diagnostic block TODO: remove
+	cuda.DotProduct(diag_scalar_slice1, 1, diag_vector_slice, mini.v)
+	CompareSlices(diag_scalar_slice1, diag_scalar_zero_slice, print_only, "v_n+1 ∈ span(m_n, m_n+1) after velocity projection")
+	cuda.DotProduct(diag_scalar_slice1, 1, diag_vector_slice, mini.f_n)
+	CompareSlices(diag_scalar_slice1, diag_scalar_zero_slice, print_only, "f_n+1 ∈ span(m_n, m_n+1) after velocity projection")
+	cuda.CrossProduct(diag_vector_slice, mini.v, mini.f_np1)
+	CompareSlices(diag_vector_slice, diag_vector_zero_slice, print_only, "v_n+1 ∥ f_n+1 after velocity projection")
 
 	// End of this iteration step
 	NSteps++
@@ -238,8 +258,8 @@ func (mini *VPOMinimizer) Step() {
 
 // Free
 func (mini *VPOMinimizer) Free() {
-	mini.f.Free()
-	mini.fnp1.Free()
+	mini.f_n.Free()
+	mini.f_np1.Free()
 	mini.v.Free()
 }
 
@@ -275,7 +295,7 @@ func VPOMinimize() {
 
 	// set stepper to the VPOMinimizer
 	mini := VPOMinimizer{
-		f:      nil,
+		f_n:    nil,
 		v:      nil,
 		lastDm: FifoRingVPO(DmSamplesVPO),
 		lastF:  FifoRingVPO(FSamplesVPO)}
@@ -314,6 +334,14 @@ func GetVPOVelocity(dst *data.Slice) {
 	data.Copy(dst, LastVPOVelocity)
 }
 
+func SetVPOVelocityNorm(val float64) {
+	LastVPOVelocityNorm = val
+}
+
+func GetVPOVelocityNorm() float64 {
+	return LastVPOVelocityNorm
+}
+
 func SetBeffperp(val *data.Slice) {
 	if LastBeffperp == nil {
 		LastBeffperp = cuda.Buffer(3, M.Buffer().Size(), M.Buffer().N_images)
@@ -328,18 +356,12 @@ func GetBeffperp(dst *data.Slice) {
 	data.Copy(dst, LastBeffperp)
 }
 
-func SetVdotF(val *data.Slice) {
-	if Lastvdotf == nil {
-		Lastvdotf = cuda.Buffer(1, M.Buffer().Size(), M.Buffer().N_images)
-	}
-	data.Copy(Lastvdotf, val)
+func SetVdotF(val float64) {
+	Lastvdotf = val
 }
 
-func GetVdotF(dst *data.Slice) {
-	if Lastvdotf == nil {
-		Lastvdotf = cuda.Buffer(1, M.Buffer().Size(), M.Buffer().N_images)
-	}
-	data.Copy(dst, Lastvdotf)
+func GetVdotF() float64 {
+	return Lastvdotf
 }
 
 func SetVdotFrot(val *data.Slice) {

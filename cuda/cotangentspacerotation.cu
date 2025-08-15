@@ -4,7 +4,8 @@
 
 // TODO: Rename and refactor signature
 // Rotates a vector v0 from the cotangent space of m0 on the N unit sphere
-// to the cotangent space of m saves
+// to the cotangent space of m, outputting in v0.
+// This assumes several facts: |m0|=|m|=1, v0 ∈ span(m0, m), v0 ⟂ m0
 
 extern "C" __global__ void
 cotangentspacerotation(
