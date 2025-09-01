@@ -2,15 +2,16 @@ package engine
 
 import (
 	"fmt"
+	"io"
+	"sync"
+	"time"
+
 	"github.com/mumax/3/cuda"
 	"github.com/mumax/3/data"
 	"github.com/mumax/3/httpfs"
 	"github.com/mumax/3/script"
 	"github.com/mumax/3/timer"
 	"github.com/mumax/3/util"
-	"io"
-	"sync"
-	"time"
 )
 
 var Table = *newTable("table") // output handle for tabular data (average magnetization etc.)
@@ -107,6 +108,7 @@ func (t *DataTable) Add(output Quantity) {
 	t.outputs = append(t.outputs, output)
 }
 
+// TODO: Accumulate output into one string and use one print syscall
 func (t *DataTable) Save() {
 	t.flushlock.Lock() // flush during write gives errShortWrite
 	defer t.flushlock.Unlock()
@@ -116,10 +118,25 @@ func (t *DataTable) Save() {
 	}
 	t.init()
 	fprint(t, Time)
-	for _, o := range t.outputs {
-		vec := AverageOf(o)
-		for _, v := range vec {
-			fprint(t, "\t", float32(v))
+	n_images := M.GetNImages()
+	if n_images > 1 {
+		stored_magnetization_ptr := M                     // We store a pointer to the original magnetization...
+		for ind_img := 0; ind_img < n_images; ind_img++ { // ...iterate over the images...
+			M = *stored_magnetization_ptr.SubMagnetization(ind_img)
+			for _, o := range t.outputs {
+				vec := AverageOf(o)
+				for _, v := range vec {
+					fprint(t, "\t", float32(v))
+				}
+			}
+		}
+		M = stored_magnetization_ptr //...and then restore the original magnetization pointer
+	} else {
+		for _, o := range t.outputs {
+			vec := AverageOf(o)
+			for _, v := range vec {
+				fprint(t, "\t", float32(v))
+			}
 		}
 	}
 	fprintln(t)
@@ -140,6 +157,7 @@ func TablePrint(msg ...interface{}) {
 	Table.Println(msg...)
 }
 
+// TODO: Accumulate output into one string and use one print syscall
 // open writer and write header
 func (t *DataTable) init() {
 	if t.inited() {
@@ -151,12 +169,27 @@ func (t *DataTable) init() {
 
 	// write header
 	fprint(t, "# t (s)")
-	for _, o := range t.outputs {
-		if o.NComp() == 1 {
-			fprint(t, "\t", NameOf(o), " (", UnitOf(o), ")")
-		} else {
-			for c := 0; c < o.NComp(); c++ {
-				fprint(t, "\t", NameOf(o)+string('x'+c), " (", UnitOf(o), ")")
+	n_images := M.GetNImages()
+	if n_images > 1 {
+		for ind_img := 0; ind_img < n_images; ind_img++ { // ...iterate over the images...
+			for _, o := range t.outputs {
+				if o.NComp() == 1 {
+					fprint(t, "\t", NameOf(o), "i", ind_img, " (", UnitOf(o), ")")
+				} else {
+					for c := 0; c < o.NComp(); c++ {
+						fprint(t, "\t", NameOf(o)+string('x'+c), "i", ind_img, " (", UnitOf(o), ")")
+					}
+				}
+			}
+		}
+	} else {
+		for _, o := range t.outputs {
+			if o.NComp() == 1 {
+				fprint(t, "\t", NameOf(o), " (", UnitOf(o), ")")
+			} else {
+				for c := 0; c < o.NComp(); c++ {
+					fprint(t, "\t", NameOf(o)+string('x'+c), " (", UnitOf(o), ")")
+				}
 			}
 		}
 	}

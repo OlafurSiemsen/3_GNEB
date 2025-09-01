@@ -114,6 +114,9 @@ func (mini *Minimizer) Step() {
 
 	// as a convention, time does not advance during relax
 	NSteps++
+	if AdvanceTime {
+		Time += Dt_si
+	}
 }
 
 func (mini *Minimizer) Free() {

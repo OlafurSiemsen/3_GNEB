@@ -134,7 +134,7 @@ func AngularInterpolation(dst *data.Slice, normalize bool, ind_image_variadic ..
 	cuda.Recycle(sin_slice)
 }
 
-// TODO?: Make this into an all-cuda function, rework doc string
+// TODO: Make this into an all-cuda function, rework doc string?
 // Implements Rodrigues' axis/angle rotation formula.
 // Takes in src and rotation_axes, 3d slices and slices containing the cos and sin
 // of the rotation angles. Rotates the vectors in src around the vectors in rotation_axes
@@ -372,7 +372,7 @@ func GNEBForceTransformation(energy_gradient *data.Slice, kappa []float32, mag_v
 	n_images := mag.GetNImages()
 
 	// Project energy real force orthogonal to path
-	cuda.Orthogonalize(energy_gradient, energy_gradient, mag_slice) //TODO: Wrong order? unnecesasary?
+	// cuda.Orthogonalize(energy_gradient, energy_gradient, mag_slice) //TODO: Wrong order? unnecesasary?
 	cuda.Global_Orthogonalize(energy_gradient, energy_gradient, tangent_slice)
 	// Generate elastic forces
 	elastic_force_slice := cuda.Buffer(3, mag_slice.Size(), n_images)

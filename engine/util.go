@@ -307,43 +307,85 @@ func PrettyPrintSlice(i_slice *data.Slice, preamble ...string) {
 // Compares two slices, if print_only then it just prints the differences,
 // otherwise it panics when the first value that differs by more than
 // eps(float32) is encountered
-func CompareSlices(slice1 *data.Slice, slice2 *data.Slice, print_only bool, preamble ...any) {
+func CompareSlices2Log(slice1 *data.Slice, slice2 *data.Slice, log_mode bool, print_mode bool, panic_mode bool, preamble ...any) {
 	nComps := slice1.NComp()
 	gridsize := slice1.Size()
 	n_images := slice1.N_images
 	host_test_slice := slice1.HostCopy()
 	host_premade_slice := slice2.HostCopy()
 	tol := 1e-6
+	var t_msg string
 	if len(preamble) != 0 {
-		fmt.Println(preamble)
+		t_msg = fmt.Sprint(preamble) + "\n"
 	} else {
-		fmt.Println("")
+		t_msg = "\n"
 	}
-	fmt.Println("Im,Comp,X,Y,Z: ")
+	t_msg += "Im,Comp,X,Y,Z: \n"
 	for iIm := 0; iIm < n_images; iIm++ {
 		for iZ := 0; iZ < gridsize[2]; iZ++ {
 			for iY := 0; iY < gridsize[1]; iY++ {
 				for iX := 0; iX < gridsize[0]; iX++ {
 					for iComp := 0; iComp < nComps; iComp++ {
-						t_msg := strconv.Itoa(iIm) + "," +
-							strconv.Itoa(iComp) + "," +
-							strconv.Itoa(iX) + "," +
-							strconv.Itoa(iY) + "," +
-							strconv.Itoa(iZ)
+						t_msg += fmt.Sprintf("%2d,%2d,%2d,%2d,%2d: ", iIm, iComp, iX, iY, iZ)
 						premade_val := host_premade_slice.Get(iComp, iX, iY, iZ, iIm)
 						test_val := host_test_slice.Get(iComp, iX, iY, iZ, iIm)
-						if print_only {
+						if log_mode || print_mode {
 							t_diff := test_val - premade_val
 							if math.Abs(t_diff) < tol {
-								fmt.Print(t_msg)
-								fmt.Print(" diff:")
-								fmt.Printf("%+.6E", t_diff)
-								fmt.Print(" PASS\n")
+								t_msg += fmt.Sprintf("diff: %+.6E PASS\n", t_diff)
 							} else {
-								fmt.Print(t_msg)
-								fmt.Print(" diff:")
-								fmt.Printf("%+.6E", t_diff)
-								fmt.Print("<-- FAIL\n")
+								t_msg += fmt.Sprintf("diff: %+.6E<-- FAIL\n", t_diff)
+							}
+						}
+						if panic_mode {
+							Expect(t_msg+" ...", test_val, premade_val, tol)
+						}
+
+					}
+				}
+			}
+		}
+	}
+	t_msg += "\n\n"
+	if log_mode {
+		log2File(t_msg)
+	}
+	if print_mode {
+		fmt.Println(t_msg)
+	}
+}
+
+// Compares two slices, if print_only then it just prints the differences,
+// otherwise it panics when the first value that differs by more than
+// eps(float32) is encountered
+func CompareSlices(slice1 *data.Slice, slice2 *data.Slice, log_only bool, preamble ...any) {
+	nComps := slice1.NComp()
+	gridsize := slice1.Size()
+	n_images := slice1.N_images
+	host_test_slice := slice1.HostCopy()
+	host_premade_slice := slice2.HostCopy()
+	tol := 1e-6
+	var t_msg string
+	if len(preamble) != 0 {
+		t_msg = fmt.Sprint(preamble)
+	} else {
+		t_msg = "\n"
+	}
+	t_msg += "Im,Comp,X,Y,Z: \n"
+	for iIm := 0; iIm < n_images; iIm++ {
+		for iZ := 0; iZ < gridsize[2]; iZ++ {
+			for iY := 0; iY < gridsize[1]; iY++ {
+				for iX := 0; iX < gridsize[0]; iX++ {
+					for iComp := 0; iComp < nComps; iComp++ {
+						t_msg += fmt.Sprintf("%2d,%2d,%2d,%2d,%2d: ", iIm, iComp, iX, iY, iZ)
+						premade_val := host_premade_slice.Get(iComp, iX, iY, iZ, iIm)
+						test_val := host_test_slice.Get(iComp, iX, iY, iZ, iIm)
+						if log_only {
+							t_diff := test_val - premade_val
+							if math.Abs(t_diff) < tol {
+								t_msg += fmt.Sprintf("diff: %+.6E PASS\n", t_diff)
+							} else {
+								t_msg += fmt.Sprintf("diff: %+.6E<-- FAIL\n", t_diff)
 							}
 						} else {
 							Expect(t_msg+" ...", test_val, premade_val, tol)
@@ -354,7 +396,29 @@ func CompareSlices(slice1 *data.Slice, slice2 *data.Slice, print_only bool, prea
 			}
 		}
 	}
-	fmt.Print("\n\n")
+	t_msg += "\n\n"
+	fmt.Print(t_msg)
+}
+
+// Prints relevant variables to the log
+func LogSystem() {
+	LogOut("Gridsize", Mesh().Size())
+	LogOut("CellSize", Mesh().CellSize())
+	LogOut("PBC", Mesh().PBC())
+	LogOut("N_Images", M.GetNImages())
+	LogOut("Msat", Msat.Average())
+	LogOut("Aex", Aex.Average())
+	LogOut("Alpha", Alpha.Average())
+	LogOut("Ku1", Ku1.Average())
+	LogOut("Ku2", Ku2.Average())
+	LogOut("AnisU", AnisU.Average())
+	LogOut("B_ext", B_ext.Average())
+	LogOut("Dind", Dind.Average())
+	LogOut("VPO stats:")
+	LogOut("M_avg: ", M.Average())
+	CalculateTotalImageEnergies(&M)
+	LogOut("E_tot: ", M.E_img)
+	LogOut("NSteps: ", NSteps)
 }
 
 const (

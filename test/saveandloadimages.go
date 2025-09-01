@@ -42,12 +42,13 @@ func main() {
 	DrainOutput()
 	dir_str := "/home/olafur/go/src/github.com/mumax/3_GNEB/test/" + OD()
 	for it := range N_images {
-		os.Rename(dir_str+"m00000i00"+strconv.Itoa(it)+".jpg", dir_str+"m00000i00"+strconv.Itoa(it)+"o.jpg")
+		os.Rename(dir_str+"m000000i00"+strconv.Itoa(it)+".jpg", dir_str+"m000000i00"+strconv.Itoa(it)+"o.jpg")
 	}
-	M.LoadFiles(dir_str+"m00000i001.ovf", dir_str+"m00000i00"+strconv.Itoa(N_images-2)+".ovf")
+	M.LoadFiles(dir_str+"m000000i001.ovf", dir_str+"m000000i00"+strconv.Itoa(N_images-2)+".ovf")
 	Save(&M)
 	Snapshot(&M)
 	host_slice := M.Buffer().HostCopy()
+	// TODO: Swap this for the CompareSlices function
 	for it_x := range Nx {
 		for it_y := range Ny {
 			Expect("Comparing images 0, 1 >> "+"Nx: "+strconv.Itoa(it_x)+" Ny: "+strconv.Itoa(it_y),

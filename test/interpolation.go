@@ -47,9 +47,9 @@ func main() {
 
 	PrintSlice(premade_slice)
 
-	Interpolate(test_slice, 0, 5)
+	Interpolation(test_slice, 0, 5)
 	CompareSlices(test_slice, premade_slice, false)
 
-	Interpolate(test_slice, 1, 4)
+	Interpolation(test_slice, 1, 4)
 	CompareSlices(test_slice, premade_slice, false)
 }

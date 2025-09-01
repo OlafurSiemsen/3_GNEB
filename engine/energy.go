@@ -26,7 +26,7 @@ func registerEnergy(term func() float64, dens func(*data.Slice)) {
 }
 
 func CalculateTotalImageEnergies(mag_variadic ...*magnetization) {
-	var mag *magnetization // TODO?: change to image indeces
+	var mag *magnetization // TODO: change to image indeces?
 	switch len(mag_variadic) {
 	case 0:
 		mag = &M

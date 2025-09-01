@@ -24,7 +24,7 @@ func SetEffectiveField(dst *data.Slice, mag *magnetization) {
 			if FixEndImages && (ind_img == 0 || ind_img == n_images-1) {
 				continue
 			}
-			M = *stored_magnetization.SubMagnetization(ind_img)
+			M = *stored_magnetization.SubMagnetization(ind_img) // TODO: Unnecessary?
 			// M.buffer_ = stored_magnetization_ptr.SubSlice(ind_img) // ...one at a time...
 			SetEffectiveField(dst.SubSlice(ind_img), mag.SubMagnetization(ind_img))
 		}
