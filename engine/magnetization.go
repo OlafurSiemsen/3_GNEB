@@ -47,8 +47,7 @@ func (m *magnetization) normalize()              { cuda.Normalize(m.Buffer(), ge
 func (m *magnetization) alloc() {
 	n_images := m.GetNImages()
 	m.buffer_ = cuda.NewSlice(3, m.Mesh().Size(), n_images)
-	m.n_images = 0
-	if n_images != 0 {
+	if n_images != 1 {
 		m.tangent_buffer_ = cuda.NewSlice(3, m.Mesh().Size(), n_images)
 		m.Geodesic_distances = make([]float64, n_images-1)
 	}
@@ -56,11 +55,12 @@ func (m *magnetization) alloc() {
 	m.Set(RandomMag()) // sane starting config
 }
 
+// TODO: Refactor redundancy
 func (m *magnetization) GetNImages() int {
 	if m.buffer_ == nil {
 		return m.n_images
 	} else {
-		return m.buffer_.N_images
+		return m.n_images
 	}
 }
 
@@ -77,6 +77,7 @@ func (m *magnetization) SetNImages(n_images int) {
 	if m.buffer_ == nil {
 		m.n_images = n_images
 	} else {
+		m.n_images = n_images
 		m.buffer_.N_images = n_images
 	}
 	// m.buffer_.N_images = n_images

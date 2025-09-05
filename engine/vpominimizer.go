@@ -22,7 +22,7 @@ var (
 	StopMaxDmVPO float64   = 1e-6           // stop minimizer if sampled dm is smaller than this
 	FSamplesVPO  int       = 1              // Number of max F to keep for convergence check
 	StopMaxFVPO  float64   = 1e-6           // stop minimizer if sampled maximum force is smaller than this
-	MaxIterVPO   int       = 20000          // Maximum number of iterations
+	MaxIterVPO   int       = 10000          // Maximum number of iterations
 	MinimizePath bool      = true           // True if the path should be minimized, false if each image is minimized seperately
 	FixEndImages bool      = true           // True if the first and last images are not to be modified
 	AdvanceTime  bool      = false          // Whether to increment time globally - time is reset at the end
@@ -40,9 +40,9 @@ var (
 	LastBeffperp        *data.Slice
 	B_eff_perp          = NewVectorField("B_eff_perp", "T", "Effective field that is cotangent to m", GetBeffperp)
 	Lastvdotf           float64
-	Vdotf               = NewScalarValue("vdotf", "", "Dot(v,f) before rotation between cotangenet spaces", GetVdotF)
+	Vdotf               = NewScalarValue("vdotf", "", "Dot(v,f) before rotation between cotangent spaces", GetVdotF)
 	Lastvdotfrot        *data.Slice
-	Vdotfrot            = NewScalarField("vdotfrot", "", "Dot(v,f) after rotation between cotangenet spaces", GetVdotFrot)
+	Vdotfrot            = NewScalarField("vdotfrot", "", "Dot(v,f) after rotation between cotangent spaces", GetVdotFrot)
 	LastMaxDm           float64
 	MaxDm               = NewScalarValue("maxDm", "T", "Maximum magnetization displacement", GetMaxDm)
 )
@@ -103,7 +103,7 @@ func (mini *VPOMinimizer) Step() {
 	size := mag_slice.Size()
 	n_images := mag_slice.N_images
 
-	// Diagnostic variables TODO: remove
+	// Diagnostic block TODO: remove
 	log_mode := false
 	print_mode := false
 	panic_mode := false
@@ -117,6 +117,15 @@ func (mini *VPOMinimizer) Step() {
 		diag_scalar_one_slice  *data.Slice
 		diag_vector_zero_slice *data.Slice
 	)
+
+	// LastDiagVec1 := cuda.Buffer(3, size, n_images)
+	// defer cuda.Recycle(LastDiagVec1)
+	// LastDiagVec2 := cuda.Buffer(3, size, n_images)
+	// defer cuda.Recycle(LastDiagVec2)
+	// LastDiagVec3 := cuda.Buffer(3, size, n_images)
+	// defer cuda.Recycle(LastDiagVec3)
+	// LastDiagVec4 := cuda.Buffer(3, size, n_images)
+	// defer cuda.Recycle(LastDiagVec4)
 
 	if diagnostic_mode {
 		diag_scalar_slice1 := cuda.Buffer(1, size, n_images) // Diagnostic scalar slice
@@ -154,19 +163,38 @@ func (mini *VPOMinimizer) Step() {
 	mini.lastF.Add(maxF)
 	SetBeffperp(mini.f_n)
 	SetMaxVPOForce(maxF)
-	SetVPOForceNorm(math.Sqrt(float64(cuda.Dot(mini.f_n, mini.f_n))))
 	SetVPOVelocity(mini.v)
 	SetVPOVelocityNorm(float64(cuda.Dot(mini.v, mini.v)))
 
 	// Diagnostic block TODO: remove
 	if diagnostic_mode {
 		cuda.DotProduct(diag_scalar_slice1, 1, mini.f_n, mag_slice)
-		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, "m_n ⟂ f_n at beginning of step", NSteps)
+		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, NSteps, ": m_n ⟂ f_n at beginning of step")
 	}
 
 	if n_images > 1 && MinimizePath {
-		GNEBForceTransformation(mini.f_n, GNEB_kappa, &M)
+		// GNEBForceTransformation(mini.f_n, GNEB_kappa, &M)
+		// TODO: Refold the following into the above function
+		// Project energy real force orthogonal to path
+		// cuda.Orthogonalize(energy_gradient, energy_gradient, mag_slice) //TODO: Wrong order? unnecessary?
+		LogSlice(mini.f_n, "B_eff⟂m", NSteps)
+		CalculateTangents(&M)
+		ProjectTangents(&M)
+		// cuda.Global_Orthogonalize(mini.f_n, mini.f_n, M.tangent_buffer_)
+		for ind_img := 1; ind_img < n_images-1; ind_img++ {
+			cuda.Global_Orthogonalize(mini.f_n.SubSlice(ind_img), mini.f_n.SubSlice(ind_img), M.tangent_buffer_.SubSlice(ind_img))
+		}
+		LogSlice(M.tangent_buffer_, "τ", NSteps)
+		LogSlice(mini.f_n, "(B_eff⟂m)⟂τ", NSteps)
+		// Generate elastic forces
+		elastic_force_slice := cuda.Buffer(3, mag_slice.Size(), n_images)
+		CalculateGeodesicElasticForces(elastic_force_slice, GNEB_kappa, &M)
+		LogSlice(elastic_force_slice, "F_s", NSteps)
+		cuda.Add(mini.f_n, mini.f_n, elastic_force_slice)
+		// Cleanup
+		cuda.Recycle(elastic_force_slice)
 	}
+	SetVPOForceNorm(math.Sqrt(float64(cuda.Dot(mini.f_n, mini.f_n))))
 
 	// Convergence check
 	// Store a copy of the magnetization for comparison and convergence check
@@ -177,11 +205,11 @@ func (mini *VPOMinimizer) Step() {
 	// Diagnostic block TODO: remove
 	if diagnostic_mode {
 		cuda.DotProduct(diag_scalar_slice1, 1, m_n, mini.v)
-		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, "m_n ⟂ v_n at beginning of step", NSteps)
+		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, NSteps, ": m_n ⟂ v_n at beginning of step")
 		cuda.DotProduct(diag_scalar_slice1, 1, m_n, mini.f_n)
-		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, "m_n ⟂ f_n at beginning of step", NSteps)
+		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, NSteps, ": m_n ⟂ f_n at beginning of step")
 		cuda.CrossProduct(diag_vector_slice, mini.v, mini.f_n)
-		CompareSlices2Log(diag_vector_slice, diag_vector_zero_slice, log_mode, print_mode, panic_mode, "v_n ∥ f_n before m update", NSteps)
+		CompareSlices2Log(diag_vector_slice, diag_vector_zero_slice, log_mode, print_mode, panic_mode, NSteps, ": v_n ∥ f_n before m update")
 	}
 
 	// Update m_n to m_{n+1}
@@ -197,14 +225,14 @@ func (mini *VPOMinimizer) Step() {
 	// Diagnostic block TODO: remove
 	if diagnostic_mode {
 		cuda.CrossProduct(diag_vector_slice, mini.v, mini.f_n)
-		CompareSlices2Log(diag_vector_slice, diag_vector_zero_slice, log_mode, print_mode, panic_mode, "v_n ∥ f_n", NSteps)
+		CompareSlices2Log(diag_vector_slice, diag_vector_zero_slice, log_mode, print_mode, panic_mode, NSteps, ": v_n ∥ f_n")
 		cuda.VecNorm(diag_scalar_slice1, mag_slice)
-		CompareSlices2Log(diag_scalar_slice1, diag_scalar_one_slice, log_mode, print_mode, panic_mode, "|m|=1", NSteps)
+		CompareSlices2Log(diag_scalar_slice1, diag_scalar_one_slice, log_mode, print_mode, panic_mode, NSteps, ": |m|=1")
 		cuda.CrossProduct(diag_vector_slice, m_n, mag_slice)
 		cuda.DotProduct(diag_scalar_slice1, 1, diag_vector_slice, mini.f_n)
-		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, "f_n ∈ span(m_n, m_n+1)", NSteps)
+		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, NSteps, ": f_n ∈ span(m_n, m_n+1)")
 		cuda.DotProduct(diag_scalar_slice1, 1, diag_vector_slice, mini.v)
-		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, "f_n ∈ span(m_n, m_n+1)", NSteps)
+		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, NSteps, ": f_n ∈ span(m_n, m_n+1)")
 	}
 
 	// Rotate the velocity to the cotangent space of the new magnetization
@@ -218,7 +246,7 @@ func (mini *VPOMinimizer) Step() {
 	// Diagnostic block TODO: remove
 	if diagnostic_mode {
 		cuda.DotProduct(diag_scalar_slice2, 1, mini.v, mini.v)
-		CompareSlices2Log(diag_scalar_slice1, diag_scalar_slice2, log_mode, print_mode, panic_mode, "|v_n|=|Rotate(v_n)|", NSteps)
+		CompareSlices2Log(diag_scalar_slice1, diag_scalar_slice2, log_mode, print_mode, panic_mode, NSteps, ": |v_n|=|Rotate(v_n)|")
 		cuda.DotProduct(diag_scalar_slice1, 1, mini.f_n, mini.f_n)
 	}
 
@@ -227,15 +255,15 @@ func (mini *VPOMinimizer) Step() {
 	// Diagnostic block TODO: remove
 	if diagnostic_mode {
 		cuda.DotProduct(diag_scalar_slice2, 1, mini.f_n, mini.f_n)
-		CompareSlices2Log(diag_scalar_slice1, diag_scalar_slice2, log_mode, print_mode, panic_mode, "|f_n|=|Rotate(f_n)|", NSteps)
+		CompareSlices2Log(diag_scalar_slice1, diag_scalar_slice2, log_mode, print_mode, panic_mode, NSteps, ": |f_n|=|Rotate(f_n)|")
 		cuda.DotProduct(diag_scalar_slice1, 1, mag_slice, mini.v)
-		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, "m_n+1 ⟂ v_n after cotangent space rotation", NSteps)
+		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, NSteps, ": m_n+1 ⟂ v_n after cotangent space rotation")
 		cuda.DotProduct(diag_scalar_slice1, 1, mag_slice, mini.f_n)
-		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, "m_n+1 ⟂ f_n after cotangent space rotation", NSteps)
+		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, NSteps, ": m_n+1 ⟂ f_n after cotangent space rotation")
 		cuda.DotProduct(diag_scalar_slice1, 1, diag_vector_slice, mini.f_n)
-		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, "f_n ∈ span(m_n, m_n+1) after cotangent space rotation", NSteps)
+		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, NSteps, ": f_n ∈ span(m_n, m_n+1) after cotangent space rotation")
 		cuda.DotProduct(diag_scalar_slice1, 1, diag_vector_slice, mini.v)
-		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, "v_n ∈ span(m_n, m_n+1) after cotangent space rotation", NSteps)
+		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, NSteps, ": v_n ∈ span(m_n, m_n+1) after cotangent space rotation")
 	}
 	// Update v_n to v_{n+1}
 	mini.f_np1 = cuda.Buffer(3, size, n_images)
@@ -247,12 +275,12 @@ func (mini *VPOMinimizer) Step() {
 
 	// Diagnostic block TODO: remove
 	// cuda.DotProduct(diag_scalar_slice1, 1, mag_slice, mini.fnp1)
-	// CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, print_only, "m_n+1 ⟂ f_n+1", NSteps)
+	// CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, print_only, NSteps, ": m_n+1 ⟂  f_n+1")
 
 	// Diagnostic block TODO: remove
 	if diagnostic_mode {
 		cuda.DotProduct(diag_scalar_slice1, 1, mag_slice, mini.v)
-		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, "m_n+1 DOT v_n+1 after addition", NSteps)
+		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, NSteps, ": m_n+1 DOT v_n+1 after addition")
 	}
 
 	// Factor for projection of velocity on force,
@@ -270,7 +298,7 @@ func (mini *VPOMinimizer) Step() {
 	// Diagnostic block TODO: remove
 	if diagnostic_mode {
 		cuda.CrossProduct(diag_vector_slice, mini.v, mini.f_np1)
-		CompareSlices2Log(diag_vector_slice, diag_vector_zero_slice, log_mode, print_mode, panic_mode, "v_n+1 ∥ f_n+1 after velocity projection", NSteps)
+		CompareSlices2Log(diag_vector_slice, diag_vector_zero_slice, log_mode, print_mode, panic_mode, NSteps, ": v_n+1 ∥ f_n+1 after velocity projection")
 	}
 
 	// End of this iteration step

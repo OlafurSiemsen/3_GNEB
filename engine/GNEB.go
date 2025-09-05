@@ -8,11 +8,13 @@ import (
 	"github.com/mumax/3/data"
 )
 
+// TODO: Remove?
 type GNEB_params struct {
 	kappa    []float32
 	max_iter int
 }
 
+// TODO: Remove?
 func New_GNEB_params(max_iter int, kappa []float32, n_images int) GNEB_params {
 	switch len(kappa) {
 	case 1:
@@ -231,14 +233,15 @@ func CalculateTangents(mag_variadic ...*magnetization) {
 			switch {
 			case E_np1 > E_nm1:
 				// fwd diff * dE_max + bkwd diff * dE_min
-				cuda.Madd2(tangent_slice.SubSlice(ind_img), fwd_diff_slice, bkwd_diff_slice, max_delta_E, min_delta_E)
+				recip_max_delta_E := 1 / max_delta_E
+				cuda.Madd2(tangent_slice.SubSlice(ind_img), fwd_diff_slice, bkwd_diff_slice, 1, min_delta_E*recip_max_delta_E)
 			case E_np1 < E_nm1:
 				// fwd diff * dE_min + bkwd diff * dE_max
-				cuda.Madd2(tangent_slice.SubSlice(ind_img), fwd_diff_slice, bkwd_diff_slice, min_delta_E, max_delta_E)
+				recip_max_delta_E := 1 / max_delta_E
+				cuda.Madd2(tangent_slice.SubSlice(ind_img), fwd_diff_slice, bkwd_diff_slice, min_delta_E*recip_max_delta_E, 1)
 			default:
 				// fwd diff + bkwd diff
-				avg_delta_E := max_delta_E // In this case max_delta_E == min_delta_E
-				cuda.Madd2(tangent_slice.SubSlice(ind_img), fwd_diff_slice, bkwd_diff_slice, avg_delta_E, avg_delta_E)
+				cuda.Madd2(tangent_slice.SubSlice(ind_img), fwd_diff_slice, bkwd_diff_slice, 1, 1)
 			}
 			cuda.Recycle(fwd_diff_slice)
 			cuda.Recycle(bkwd_diff_slice)
@@ -270,10 +273,15 @@ func ProjectTangents(mag_variadic ...*magnetization) {
 	}
 	tangent_slice := mag.tangent_buffer_
 	mag_slice := mag.buffer_
+	n_images := mag_slice.N_images
 	// n_images := mag_slice.N_images
 	cuda.Orthogonalize(tangent_slice, tangent_slice, mag_slice)
-	norm := cuda.Dot(tangent_slice, tangent_slice)
-	cuda.Scale(tangent_slice, tangent_slice, norm)
+	// TODO: Implement cases for last and first image
+	for ind_img := 1; ind_img < n_images-1; ind_img++ {
+		norm := cuda.Dot(tangent_slice.SubSlice(ind_img), tangent_slice.SubSlice(ind_img))
+		norm = float32(math.Sqrt(float64(norm))) // Ugh
+		cuda.Scale(tangent_slice.SubSlice(ind_img), tangent_slice.SubSlice(ind_img), 1/norm)
+	}
 	mag.geodesic_tangents_calc = true
 }
 
@@ -351,8 +359,8 @@ func CalculateGeodesicElasticForces(geodesic_elastic_force *data.Slice, kappa []
 		cuda.Scale(elastic_force_n, tangent_n, coeff)
 		cuda.Orthogonalize(elastic_force_slice, elastic_force_slice, mag_slice)
 	}
-	cuda.Add(geodesic_elastic_force, geodesic_elastic_force, elastic_force_slice)
-
+	// cuda.Add(geodesic_elastic_force, geodesic_elastic_force, elastic_force_slice)
+	data.Copy(geodesic_elastic_force, elastic_force_slice)
 	cuda.Recycle(elastic_force_slice)
 }
 

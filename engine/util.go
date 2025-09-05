@@ -254,25 +254,31 @@ func PrintSlice(i_slice *data.Slice, preamble ...any) {
 	}
 }
 
-func LogSlice(i_slice *data.Slice, preamble ...any) {
+func LogSlice(i_slice *data.Slice, variable_name string, preamble ...any) {
 	gridsize := i_slice.Size()
 	n_images := i_slice.N_images
 	host_slice := i_slice.HostCopy()
+	comp_name_list := []string{"x", "y", "z"}
+	t_msg := "// "
 	if len(preamble) != 0 {
-		LogOut(preamble)
+		t_msg = t_msg + fmt.Sprintln(preamble...)
 	} else {
 	}
-	for iComp := 0; iComp < i_slice.NComp(); iComp++ {
-		for iIm := 0; iIm < n_images; iIm++ {
+	for iIm := 0; iIm < n_images; iIm++ {
+		for iComp := 0; iComp < i_slice.NComp(); iComp++ {
+			t_msg = t_msg + fmt.Sprintf("%s%si%02d", variable_name, comp_name_list[iComp], iIm)
 			for iZ := 0; iZ < gridsize[2]; iZ++ {
 				for iY := 0; iY < gridsize[1]; iY++ {
 					for iX := 0; iX < gridsize[0]; iX++ {
-						LogOut(strconv.FormatFloat(host_slice.Get(iComp, iX, iY, iZ, iIm), 'f', 6, 32) + "	")
+						t_msg = t_msg + fmt.Sprintf("	%E", host_slice.Get(iComp, iX, iY, iZ, iIm))
+						// log2File(strconv.FormatFloat(host_slice.Get(iComp, iX, iY, iZ, iIm), 'f', 6, 32) + "	")
 					}
 				}
 			}
+			t_msg = t_msg + "\n"
 		}
 	}
+	log2File(t_msg)
 }
 
 // Prints a slice prettily
@@ -304,9 +310,8 @@ func PrettyPrintSlice(i_slice *data.Slice, preamble ...string) {
 	fmt.Print("\n\n")
 }
 
-// Compares two slices, if print_only then it just prints the differences,
-// otherwise it panics when the first value that differs by more than
-// eps(float32) is encountered
+// Compares two slices by comparing their differences to eps(float32),
+// prints to terminal, log file or panics depending on *_mode flags
 func CompareSlices2Log(slice1 *data.Slice, slice2 *data.Slice, log_mode bool, print_mode bool, panic_mode bool, preamble ...any) {
 	nComps := slice1.NComp()
 	gridsize := slice1.Size()
@@ -330,8 +335,8 @@ func CompareSlices2Log(slice1 *data.Slice, slice2 *data.Slice, log_mode bool, pr
 						premade_val := host_premade_slice.Get(iComp, iX, iY, iZ, iIm)
 						test_val := host_test_slice.Get(iComp, iX, iY, iZ, iIm)
 						if log_mode || print_mode {
-							t_diff := test_val - premade_val
-							if math.Abs(t_diff) < tol {
+							t_diff := math.Abs(test_val - premade_val)
+							if t_diff < tol {
 								t_msg += fmt.Sprintf("diff: %+.6E PASS\n", t_diff)
 							} else {
 								t_msg += fmt.Sprintf("diff: %+.6E<-- FAIL\n", t_diff)

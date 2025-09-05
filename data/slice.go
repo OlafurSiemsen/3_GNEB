@@ -417,6 +417,9 @@ func Index(size [3]int, ix, iy, iz int, param_image_variadic ...int) int {
 }
 
 func (i_slice *Slice) SubSlice(ind_image int) *Slice {
+	if ind_image > i_slice.N_images { // TODO: Test this guard clause
+		panic(fmt.Sprintf("Image index out of bounds: %v > %v\n", ind_image, i_slice.N_images))
+	}
 	NComp := len(i_slice.ptrs)
 	ptrs := make([]unsafe.Pointer, NComp)
 	physical_size := prod(i_slice.size)

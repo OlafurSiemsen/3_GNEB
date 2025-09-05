@@ -118,11 +118,11 @@ func (t *DataTable) Save() {
 	}
 	t.init()
 	fprint(t, Time)
-	n_images := M.GetNImages()
+	n_images := M.n_images
 	if n_images > 1 {
-		stored_magnetization_ptr := M                     // We store a pointer to the original magnetization...
+		stored_magnetization_ptr := M.buffer_             // We store a pointer to the original magnetization...
 		for ind_img := 0; ind_img < n_images; ind_img++ { // ...iterate over the images...
-			M = *stored_magnetization_ptr.SubMagnetization(ind_img)
+			M.buffer_ = stored_magnetization_ptr.SubSlice(ind_img)
 			for _, o := range t.outputs {
 				vec := AverageOf(o)
 				for _, v := range vec {
@@ -130,7 +130,7 @@ func (t *DataTable) Save() {
 				}
 			}
 		}
-		M = stored_magnetization_ptr //...and then restore the original magnetization pointer
+		M.buffer_ = stored_magnetization_ptr //...and then restore the original magnetization pointer
 	} else {
 		for _, o := range t.outputs {
 			vec := AverageOf(o)
