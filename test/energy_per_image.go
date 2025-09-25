@@ -29,7 +29,7 @@ func main() {
 
 	gridsize := [3]int{4, 4, 4}
 	n_images := 16
-	// Is there really no non-script way to set anisU?
+	// TODO: Is there really no non-script way to set anisU?
 	Eval(`
 		Msat  = 860E3
 		Aex   = 13E-12

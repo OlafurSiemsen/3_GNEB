@@ -216,13 +216,14 @@ func CalculateTangents(mag_variadic ...*magnetization) {
 		E_n := E_img[ind_img]
 		E_nm1 := E_img[ind_img-1]
 		switch {
-		case E_np1 > E_n && E_n > E_nm1:
+		case (E_nm1 < E_n && E_n <= E_np1) || (E_nm1 <= E_n && E_n < E_np1):
 			// forward difference
 			imageSub(tangent_slice.SubSlice(ind_img), mag_slice, ind_img+1, ind_img)
-		case E_np1 < E_n && E_n < E_nm1:
+		case (E_nm1 >= E_n && E_n > E_np1) || (E_nm1 > E_n && E_n >= E_np1):
 			// backwards difference
 			imageSub(tangent_slice.SubSlice(ind_img), mag_slice, ind_img, ind_img-1)
 		default:
+			epsilon := float32(1e-36)
 			delta_E := []float64{math.Abs(E_np1 - E_n), math.Abs(E_n - E_nm1)}
 			max_delta_E := float32(slices.Max(delta_E))
 			min_delta_E := float32(slices.Min(delta_E))
@@ -230,6 +231,11 @@ func CalculateTangents(mag_variadic ...*magnetization) {
 			imageSub(fwd_diff_slice, mag_slice, ind_img+1, ind_img)
 			bkwd_diff_slice := cuda.Buffer(3, mag_slice.Size())
 			imageSub(bkwd_diff_slice, mag_slice, ind_img, ind_img-1)
+			// If the delta_E are close to bottom of float32, we use the central difference
+			if max_delta_E < epsilon {
+				// fwd diff + bkwd diff
+				cuda.Madd2(tangent_slice.SubSlice(ind_img), fwd_diff_slice, bkwd_diff_slice, 1, 1)
+			}
 			switch {
 			case E_np1 > E_nm1:
 				// fwd diff * dE_max + bkwd diff * dE_min
@@ -357,7 +363,7 @@ func CalculateGeodesicElasticForces(geodesic_elastic_force *data.Slice, kappa []
 		tangent_n := tangent_slice.SubSlice(ind_img)
 		coeff := kappa[ind_img] * float32(mag.Geodesic_distances[ind_img]-mag.Geodesic_distances[ind_img-1])
 		cuda.Scale(elastic_force_n, tangent_n, coeff)
-		cuda.Orthogonalize(elastic_force_slice, elastic_force_slice, mag_slice)
+		// cuda.Orthogonalize(elastic_force_slice, elastic_force_slice, mag_slice)
 	}
 	// cuda.Add(geodesic_elastic_force, geodesic_elastic_force, elastic_force_slice)
 	data.Copy(geodesic_elastic_force, elastic_force_slice)
@@ -380,12 +386,20 @@ func GNEBForceTransformation(energy_gradient *data.Slice, kappa []float32, mag_v
 	n_images := mag.GetNImages()
 
 	// Project energy real force orthogonal to path
-	// cuda.Orthogonalize(energy_gradient, energy_gradient, mag_slice) //TODO: Wrong order? unnecesasary?
-	cuda.Global_Orthogonalize(energy_gradient, energy_gradient, tangent_slice)
+	// LogSlice(energy_gradient, "B_eff⟂m", NSteps)
+	CalculateTangents(mag)
+	ProjectTangents(mag)
+	for ind_img := 1; ind_img < n_images-1; ind_img++ {
+		cuda.Global_Orthogonalize(energy_gradient.SubSlice(ind_img), energy_gradient.SubSlice(ind_img), tangent_slice.SubSlice(ind_img))
+	}
+	// LogSlice(M.tangent_buffer_, "τ", NSteps)
+	// LogSlice(energy_gradient, "(B_eff⟂m)⟂τ", NSteps)
 	// Generate elastic forces
 	elastic_force_slice := cuda.Buffer(3, mag_slice.Size(), n_images)
 	CalculateGeodesicElasticForces(elastic_force_slice, kappa, mag)
+	// LogSlice(elastic_force_slice, "F_s", NSteps)
 	cuda.Add(energy_gradient, energy_gradient, elastic_force_slice)
+	// LogSlice(energy_gradient, "F_GNEB", NSteps)
 	// Cleanup
 	cuda.Recycle(elastic_force_slice)
 }

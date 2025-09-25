@@ -40,7 +40,7 @@ func main() {
 	Save(&M)
 	Snapshot(&M)
 	DrainOutput()
-	dir_str := "/home/olafur/go/src/github.com/mumax/3_GNEB/test/" + OD()
+	dir_str := "/home/olafur/go/src/github.com/mumax/3_GNEB/test/" + OD() // TODO: Make this not specific to my machine
 	for it := range N_images {
 		os.Rename(dir_str+"m000000i00"+strconv.Itoa(it)+".jpg", dir_str+"m000000i00"+strconv.Itoa(it)+"o.jpg")
 	}

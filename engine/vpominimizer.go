@@ -22,11 +22,11 @@ var (
 	StopMaxDmVPO float64   = 1e-6           // stop minimizer if sampled dm is smaller than this
 	FSamplesVPO  int       = 1              // Number of max F to keep for convergence check
 	StopMaxFVPO  float64   = 1e-6           // stop minimizer if sampled maximum force is smaller than this
-	MaxIterVPO   int       = 10000          // Maximum number of iterations
+	MaxIterVPO   int       = 1000           // Maximum number of iterations
 	MinimizePath bool      = true           // True if the path should be minimized, false if each image is minimized seperately
 	FixEndImages bool      = true           // True if the first and last images are not to be modified
 	AdvanceTime  bool      = false          // Whether to increment time globally - time is reset at the end
-	GNEB_kappa   []float32 = []float32{0.5} // Spring constants for the inter-image elastic forces
+	GNEB_kappa   []float32 = []float32{2.0} // Spring constants for the inter-image elastic forces
 
 	//Diagnostic outputs, TODO:Remove, or at least disable for performance
 	LastMaxVPOForce     float64
@@ -94,6 +94,7 @@ type VPOMinimizer struct {
 	v      *data.Slice // velocity
 	lastDm fifoRingVPO
 	lastF  fifoRingVPO
+	iter   int // current number of iterations
 }
 
 // VPOMinimizer step
@@ -151,6 +152,9 @@ func (mini *VPOMinimizer) Step() {
 		// Update and increment index on force
 		SetEffectiveField(mini.f_n, &M)                   // f_n arbitrary
 		cuda.Orthogonalize(mini.f_n, mini.f_n, mag_slice) // f_n ⟂ m_n
+		if n_images > 1 && MinimizePath {
+			GNEBForceTransformation(mini.f_n, GNEB_kappa, &M)
+		}
 	}
 
 	// Initialize velocity to 0
@@ -172,28 +176,6 @@ func (mini *VPOMinimizer) Step() {
 		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, NSteps, ": m_n ⟂ f_n at beginning of step")
 	}
 
-	if n_images > 1 && MinimizePath {
-		// GNEBForceTransformation(mini.f_n, GNEB_kappa, &M)
-		// TODO: Refold the following into the above function
-		// Project energy real force orthogonal to path
-		// cuda.Orthogonalize(energy_gradient, energy_gradient, mag_slice) //TODO: Wrong order? unnecessary?
-		LogSlice(mini.f_n, "B_eff⟂m", NSteps)
-		CalculateTangents(&M)
-		ProjectTangents(&M)
-		// cuda.Global_Orthogonalize(mini.f_n, mini.f_n, M.tangent_buffer_)
-		for ind_img := 1; ind_img < n_images-1; ind_img++ {
-			cuda.Global_Orthogonalize(mini.f_n.SubSlice(ind_img), mini.f_n.SubSlice(ind_img), M.tangent_buffer_.SubSlice(ind_img))
-		}
-		LogSlice(M.tangent_buffer_, "τ", NSteps)
-		LogSlice(mini.f_n, "(B_eff⟂m)⟂τ", NSteps)
-		// Generate elastic forces
-		elastic_force_slice := cuda.Buffer(3, mag_slice.Size(), n_images)
-		CalculateGeodesicElasticForces(elastic_force_slice, GNEB_kappa, &M)
-		LogSlice(elastic_force_slice, "F_s", NSteps)
-		cuda.Add(mini.f_n, mini.f_n, elastic_force_slice)
-		// Cleanup
-		cuda.Recycle(elastic_force_slice)
-	}
 	SetVPOForceNorm(math.Sqrt(float64(cuda.Dot(mini.f_n, mini.f_n))))
 
 	// Convergence check
@@ -270,6 +252,9 @@ func (mini *VPOMinimizer) Step() {
 	defer cuda.Recycle(mini.f_np1)
 	SetEffectiveField(mini.f_np1, &M)
 	cuda.Orthogonalize(mini.f_np1, mini.f_np1, mag_slice) // f_n+1 ⟂ m_n+1
+	if n_images > 1 && MinimizePath {
+		GNEBForceTransformation(mini.f_np1, GNEB_kappa, &M)
+	}
 	fac := float32(stepsizeVPO * recip2mVPO)
 	cuda.Madd3(mini.v, mini.v, mini.f_n, mini.f_np1, 1, fac, fac)
 
@@ -286,7 +271,6 @@ func (mini *VPOMinimizer) Step() {
 	// Factor for projection of velocity on force,
 	// sets velocity to 0 if v.f < 0
 	vDOTf := cuda.Dot(mini.v, mini.f_np1)
-	// Diagnostic block TODO: remove
 	SetVdotF(float64(vDOTf))
 	if vDOTf <= 0.0 {
 		cuda.Zero(mini.v)
@@ -302,7 +286,7 @@ func (mini *VPOMinimizer) Step() {
 	}
 
 	// End of this iteration step
-	NSteps++
+	mini.iter++
 
 	cuda.Madd2(m_n, mag_slice, m_n, 1., -1.)
 	max_dm := cuda.MaxVecNorm(m_n)
@@ -336,14 +320,14 @@ func VPOMinimize() {
 	relaxing = true // disable temperature noise
 
 	// ...to restore them later. Read as "defer ..." = "when function ends, do ..."
-	// defer func() {
-	// 	SetSolver(prevType)
-	// 	FixDt = prevFixDt
-	// 	Precess = prevPrecess
-	// 	Time = t0
+	defer func() {
+		SetSolver(prevType)
+		FixDt = prevFixDt
+		Precess = prevPrecess
+		Time = t0
 
-	// 	relaxing = false
-	// }()
+		relaxing = false
+	}()
 
 	// disable precession for torque calculation
 	Precess = false
@@ -358,14 +342,15 @@ func VPOMinimize() {
 		f_n:    nil,
 		v:      nil,
 		lastDm: FifoRingVPO(DmSamplesVPO),
-		lastF:  FifoRingVPO(FSamplesVPO)}
+		lastF:  FifoRingVPO(FSamplesVPO),
+		iter:   0}
 	stepper = &mini
 
 	// TODO: Reconsider which break condition to use
 	// break condition: change of magnetization is below a reasonable threshold
 	cond := func() bool {
 		// return (((mini.lastDm.count < DmSamplesVPO) || (mini.lastF.Max() > StopMaxFVPO)) && NSteps < MaxIterVPO)
-		return (((mini.lastDm.count < DmSamplesVPO) || (mini.lastDm.Max() > StopMaxDmVPO)) && NSteps < MaxIterVPO)
+		return (((mini.lastDm.count < DmSamplesVPO) || (mini.lastDm.Max() > StopMaxDmVPO)) && mini.iter < MaxIterVPO)
 	}
 
 	RunWhile(cond)

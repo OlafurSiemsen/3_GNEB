@@ -2,8 +2,10 @@ package engine
 
 import (
 	"math"
+	"math/rand"
 	"reflect"
 	"slices"
+	"time"
 
 	"github.com/mumax/3/cuda"
 	"github.com/mumax/3/data"
@@ -257,4 +259,43 @@ func (m *magnetization) resize() {
 	m.buffer_.Free()
 	m.buffer_ = cuda.NewSlice(VECTOR, s2)
 	data.Copy(m.buffer_, resized)
+}
+
+// Adds random noise to the magnetization in the form of a field of scaled random vectors.
+func (m *magnetization) AddRandomNoise(region Shape, scale float32, ind_image_variadic ...int) {
+	checkMesh()
+
+	if region == nil {
+		region = universe
+	}
+	images_specified := len(ind_image_variadic) != 0 // Checks if the user specified images to randomize
+	host := m.Buffer().HostCopy()
+	stored_host_ptr := host // We store a pointer to the original magnetization...
+	n := m.Mesh().Size()
+	var h [3][][][]float32
+	random_generator := rand.New(rand.NewSource(time.Now().UnixNano()))
+	n_images := m.GetNImages()
+	for it_image := 0; it_image < n_images; it_image++ {
+		if images_specified && !slices.Contains(ind_image_variadic, it_image) { // Skips images that weren't specified by user
+			continue
+		}
+		host = stored_host_ptr.SubSlice(it_image) // ...iterate over the images...
+		h = host.Vectors()
+		for iz := 0; iz < n[Z]; iz++ {
+			for iy := 0; iy < n[Y]; iy++ {
+				for ix := 0; ix < n[X]; ix++ {
+					r := Index2Coord(ix, iy, iz)
+					x, y, z := r[X], r[Y], r[Z]
+					if region(x, y, z) { // inside
+						for icomp := 0; icomp < 3; icomp++ {
+							h[icomp][iz][iy][ix] += scale * 2 * (random_generator.Float32() - 0.5)
+						}
+
+					}
+				}
+			}
+		}
+	}
+	host = stored_host_ptr // ...and then restore the original magnetization pointer
+	m.SetArray(host)
 }

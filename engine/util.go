@@ -406,23 +406,25 @@ func CompareSlices(slice1 *data.Slice, slice2 *data.Slice, log_only bool, preamb
 }
 
 // Prints relevant variables to the log
+// This is only relevant when running with a .go script, since .mx3 scripts are
+// automatically added to the log.
 func LogSystem() {
 	LogOut("Gridsize", Mesh().Size())
-	LogOut("CellSize", Mesh().CellSize())
+	LogOut("CellSize", Mesh().CellSize(), Mesh().Unit)
 	LogOut("PBC", Mesh().PBC())
 	LogOut("N_Images", M.GetNImages())
-	LogOut("Msat", Msat.Average())
-	LogOut("Aex", Aex.Average())
-	LogOut("Alpha", Alpha.Average())
-	LogOut("Ku1", Ku1.Average())
-	LogOut("Ku2", Ku2.Average())
-	LogOut("AnisU", AnisU.Average())
-	LogOut("B_ext", B_ext.Average())
-	LogOut("Dind", Dind.Average())
-	LogOut("VPO stats:")
-	LogOut("M_avg: ", M.Average())
-	CalculateTotalImageEnergies(&M)
-	LogOut("E_tot: ", M.E_img)
+	LogOut("")
+	LogOut("Msat", Msat.Average(), Msat.Unit())
+	LogOut("Aex", Aex.Average(), Aex.Unit())
+	LogOut("Alpha", Alpha.Average(), Alpha.Unit())
+	LogOut("Ku1", Ku1.Average(), Ku1.Unit())
+	LogOut("Ku2", Ku2.Average(), Ku2.Unit())
+	LogOut("AnisU", AnisU.Average(), AnisU.Unit())
+	LogOut("B_ext", B_ext.Average(), B_ext.Unit())
+	LogOut("Dbulk", Dbulk.Average(), Dbulk.Unit())
+	LogOut("Dind", Dind.Average(), Dind.unit)
+	LogOut("GNEB kappa", GNEB_kappa)
+	LogOut("")
 	LogOut("NSteps: ", NSteps)
 }
 
