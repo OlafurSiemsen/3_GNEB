@@ -428,6 +428,15 @@ func LogSystem() {
 	LogOut("NSteps: ", NSteps)
 }
 
+func linspace(start float64, stop float64, n_steps int) []float64 {
+	step := (stop - start) / float64(n_steps-1)
+	o_xs := make([]float64, n_steps)
+	for ind := range o_xs {
+		o_xs[ind] = start + float64(ind)*step
+	}
+	return o_xs
+}
+
 const (
 	X = 0
 	Y = 1

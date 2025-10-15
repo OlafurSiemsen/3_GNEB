@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"math"
 	"slices"
 
@@ -390,6 +391,9 @@ func GNEBForceTransformation(energy_gradient *data.Slice, kappa []float32, mag_v
 	CalculateTangents(mag)
 	ProjectTangents(mag)
 	for ind_img := 1; ind_img < n_images-1; ind_img++ {
+		if ClimbingImage == true && ind_img == *mag.climbing_image_index {
+			continue
+		}
 		cuda.Global_Orthogonalize(energy_gradient.SubSlice(ind_img), energy_gradient.SubSlice(ind_img), tangent_slice.SubSlice(ind_img))
 	}
 	// LogSlice(M.tangent_buffer_, "τ", NSteps)
@@ -402,4 +406,133 @@ func GNEBForceTransformation(energy_gradient *data.Slice, kappa []float32, mag_v
 	// LogSlice(energy_gradient, "F_GNEB", NSteps)
 	// Cleanup
 	cuda.Recycle(elastic_force_slice)
+}
+
+// TODO-olafur: Where do I put this?
+// Implementation of the Cubic Hermite Interpolating Polynomial for
+// interpolating the energy between images in the context of GNEB.
+// See https://en.wikipedia.org/wiki/Cubic_Hermite_spline
+type CHIP struct {
+	d     []float64
+	c     []float64
+	b     []float64
+	a     []float64
+	x_arr []float64
+	x_min float64
+	x_max float64
+}
+
+// Constructor for CHIP struct
+// Inputs:
+// x_diffs: A list of (n-1) distances between points
+// y: y coordinates at each point
+// dy/dx: derivative at each point
+// Output:
+// CHIP object that can then be evaluated on the interval [0, sum(x_diffs)]
+func New_CHIP(x_diffs []float64, y []float64, dydx []float64) *CHIP {
+	o_CHIP := new(CHIP)
+	n_intervals := len(x_diffs)
+	n_points := len(y)
+	// x[n] = x_diffs[n] + x_diffs[n-1]; x[0] = 0
+	o_CHIP.x_arr = make([]float64, n_points)
+	o_CHIP.x_arr[0] = 0
+	for ind := 1; ind < len(o_CHIP.x_arr); ind++ {
+		o_CHIP.x_arr[ind] = x_diffs[ind-1] + o_CHIP.x_arr[ind-1]
+	}
+	o_CHIP.x_min = o_CHIP.x_arr[0]
+	o_CHIP.x_max = o_CHIP.x_arr[len(o_CHIP.x_arr)-1]
+	// a[n] = (dydx[n+1] + dydx[n]) / (x[n+1] - x[n+1])**2
+	//		-2*(y[n+1]-y[n]) / (x[n+1] - x[n+1])**3
+	y_diffs := make([]float64, n_intervals)
+	for ind := range y_diffs {
+		y_diffs[ind] = y[ind+1] - y[ind]
+	}
+	slope := make([]float64, n_intervals)
+	for ind := range slope {
+		slope[ind] = y_diffs[ind] / x_diffs[ind]
+	}
+	dydx_term := make([]float64, n_intervals)
+	for ind := range slope {
+		dydx_term[ind] = (dydx[ind+1] + dydx[ind] - 2*slope[ind]) / x_diffs[ind]
+	}
+	o_CHIP.a = make([]float64, n_intervals)
+	for ind := range o_CHIP.a {
+		o_CHIP.a[ind] = dydx_term[ind] / x_diffs[ind]
+	}
+	// b[n] =-(dydx[n+1] + 2dydx[n]) / (x[n+1] - x[n])
+	// 		+3*(y[n+1] - y[n]) / (x[n+1] - x[n])**2
+	o_CHIP.b = make([]float64, n_intervals)
+	for ind := range o_CHIP.b {
+		o_CHIP.b[ind] = (slope[ind]-dydx[ind])/x_diffs[ind] - dydx_term[ind]
+	}
+	o_CHIP.c = dydx[:len(dydx)-1]
+	o_CHIP.d = y
+	return o_CHIP
+}
+
+func (chip *CHIP) evaluate(xs_in []float64, add_nodes bool) []float64 {
+	if add_nodes == true {
+		xs_in = append(xs_in, chip.x_arr[1:len(chip.x_arr)-1]...)
+		slices.Sort(xs_in)
+	}
+	o_y := make([]float64, len(xs_in))
+	for ind_x_in, x_in := range xs_in {
+		if x_in < chip.x_min || chip.x_max < x_in {
+			panic(fmt.Sprintf("Input value %E outside domain of CHIP [%E, %E]", x_in, chip.x_min, chip.x_max))
+		}
+		for ind_x_val, x_val := range chip.x_arr {
+			if x_in < x_val {
+				x_n := chip.x_arr[ind_x_val-1]
+				// # print(f"{self.x_arr[t_ind-1]}< {x} < {self.x_arr[t_ind]}")
+				x_trans := x_in - x_n
+				a := chip.a[ind_x_val-1]
+				b := chip.b[ind_x_val-1]
+				c := chip.c[ind_x_val-1]
+				d := chip.d[ind_x_val-1]
+				o_y[ind_x_in] = a*x_trans*x_trans*x_trans + b*x_trans*x_trans + c*x_trans + d
+				break
+			}
+			if x_val == x_in {
+				// # print(f"{self.x_arr[t_ind]-x} = {0}")
+				o_y[ind_x_in] = chip.d[ind_x_val]
+			}
+		}
+	}
+	return o_y
+}
+
+func (chip *CHIP) evaluate_on_domain(n_steps int, add_nodes bool) ([]float64, []float64) {
+	xs := linspace(chip.x_min, chip.x_max, n_steps)
+	if add_nodes == true {
+		xs = append(xs, chip.x_arr[1:len(chip.x_arr)-1]...)
+		slices.Sort(xs)
+	}
+	return xs, chip.evaluate(xs, false)
+}
+
+func Interpolate_energy_path(mag *magnetization, cell_volume float64, M_sat float64, n_points int) ([]float64, []float64) {
+	mag_slice := mag.Buffer()
+	size := mag_slice.Size()
+	n_images := mag.GetNImages()
+	grad_slice := cuda.Buffer(3, size, n_images)
+	defer cuda.Recycle(grad_slice)
+	SetEffectiveField(grad_slice, mag)
+	gradDOTtau := make([]float64, n_images)
+	for ind_img := 0; ind_img < n_images; ind_img++ {
+		gradDOTtau[ind_img] = cell_volume * M_sat * (-float64(cuda.Dot(grad_slice.SubSlice(ind_img), M.tangent_buffer_.SubSlice(ind_img))))
+	}
+	chip := New_CHIP(M.Geodesic_distances, M.E_img, gradDOTtau)
+	o_xs, o_ys := chip.evaluate_on_domain(n_points, true)
+	return o_xs, o_ys
+}
+
+// Inverts the gradient along the direction tangental to the path
+// B_eff = -grad(Energy)
+// B_eff = B_eff - 2*dot(force, tangent)*tangent
+func climbing_force(Beff *data.Slice, mag *magnetization, climbing_image_index int) {
+	image_Beff := Beff.SubSlice(climbing_image_index)
+	image_tangent := mag.GetTangentBuffer().SubSlice(climbing_image_index)
+
+	Beff_dot_tau := cuda.Dot(image_Beff, image_tangent)
+	cuda.Madd2(image_Beff, image_Beff, image_tangent, 1.0, -2*Beff_dot_tau)
 }

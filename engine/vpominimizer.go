@@ -18,15 +18,16 @@ var (
 	recip2mVPO  = 0.5 / massVPO
 	stepsizeVPO = 0.05 // dt effective time step
 	//MaxForce          = 100.0	// TODO: maximal allowed force???
-	DmSamplesVPO int       = 10             // number of dm to keep for convergence check
-	StopMaxDmVPO float64   = 1e-6           // stop minimizer if sampled dm is smaller than this
-	FSamplesVPO  int       = 1              // Number of max F to keep for convergence check
-	StopMaxFVPO  float64   = 1e-6           // stop minimizer if sampled maximum force is smaller than this
-	MaxIterVPO   int       = 1000           // Maximum number of iterations
-	MinimizePath bool      = true           // True if the path should be minimized, false if each image is minimized seperately
-	FixEndImages bool      = true           // True if the first and last images are not to be modified
-	AdvanceTime  bool      = false          // Whether to increment time globally - time is reset at the end
-	GNEB_kappa   []float32 = []float32{2.0} // Spring constants for the inter-image elastic forces
+	DmSamplesVPO  int       = 10             // number of dm to keep for convergence check
+	StopMaxDmVPO  float64   = 1e-6           // stop minimizer if sampled dm is smaller than this
+	FSamplesVPO   int       = 1              // Number of max F to keep for convergence check
+	StopMaxFVPO   float64   = 1e-6           // stop minimizer if sampled maximum force is smaller than this
+	MaxIterVPO    int       = 20000          // Maximum number of iterations
+	MinimizePath  bool      = true           // True if the path should be minimized, false if each image is minimized seperately
+	FixEndImages  bool      = true           // True if the first and last images are not to be modified
+	ClimbingImage bool      = true           // True if one image is to climb towards a saddle point
+	AdvanceTime   bool      = false          // Whether to increment time globally - time is reset at the end
+	GNEB_kappa    []float32 = []float32{2.0} // Spring constants for the inter-image elastic forces
 
 	//Diagnostic outputs, TODO:Remove, or at least disable for performance
 	LastMaxVPOForce     float64
@@ -104,7 +105,7 @@ func (mini *VPOMinimizer) Step() {
 	size := mag_slice.Size()
 	n_images := mag_slice.N_images
 
-	// Diagnostic block TODO: remove
+	// Diagnostic block TODO-olafur: remove
 	log_mode := false
 	print_mode := false
 	panic_mode := false
@@ -118,7 +119,6 @@ func (mini *VPOMinimizer) Step() {
 		diag_scalar_one_slice  *data.Slice
 		diag_vector_zero_slice *data.Slice
 	)
-
 	// LastDiagVec1 := cuda.Buffer(3, size, n_images)
 	// defer cuda.Recycle(LastDiagVec1)
 	// LastDiagVec2 := cuda.Buffer(3, size, n_images)
@@ -128,23 +128,21 @@ func (mini *VPOMinimizer) Step() {
 	// LastDiagVec4 := cuda.Buffer(3, size, n_images)
 	// defer cuda.Recycle(LastDiagVec4)
 
-	if diagnostic_mode {
-		diag_scalar_slice1 := cuda.Buffer(1, size, n_images) // Diagnostic scalar slice
-		defer cuda.Recycle(diag_scalar_slice1)
-		diag_scalar_slice2 := cuda.Buffer(1, size, n_images) // Diagnostic scalar slice
-		defer cuda.Recycle(diag_scalar_slice2)
-		diag_vector_slice := cuda.Buffer(3, size, n_images) // Diagnostic vector slice
-		defer cuda.Recycle(diag_vector_slice)
-		diag_scalar_zero_slice := cuda.Buffer(1, size, n_images) // Diagnostic scalar slice with all zeros
-		cuda.Constant(diag_scalar_zero_slice, float32(0.0))
-		defer cuda.Recycle(diag_scalar_zero_slice)
-		diag_scalar_one_slice := cuda.Buffer(1, size, n_images) // Diagnostic scalar slice with all ones
-		cuda.Constant(diag_scalar_one_slice, float32(1.0))
-		defer cuda.Recycle(diag_scalar_one_slice)
-		diag_vector_zero_slice := cuda.Buffer(3, size, n_images) // Diagnostic vector slice with all zeros
-		cuda.Constant(diag_vector_zero_slice, float32(0.0))
-		defer cuda.Recycle(diag_vector_zero_slice)
-	}
+	// diag_scalar_slice1 = cuda.Buffer(1, size, n_images) // Diagnostic scalar slice
+	// defer cuda.Recycle(diag_scalar_slice1)
+	// diag_scalar_slice2 = cuda.Buffer(1, size, n_images) // Diagnostic scalar slice
+	// defer cuda.Recycle(diag_scalar_slice2)
+	// diag_vector_slice = cuda.Buffer(3, size, n_images) // Diagnostic vector slice
+	// defer cuda.Recycle(diag_vector_slice)
+	// diag_scalar_zero_slice = cuda.Buffer(1, size, n_images) // Diagnostic scalar slice with all zeros
+	// cuda.Constant(diag_scalar_zero_slice, float32(0.0))
+	// defer cuda.Recycle(diag_scalar_zero_slice)
+	// diag_scalar_one_slice = cuda.Buffer(1, size, n_images) // Diagnostic scalar slice with all ones
+	// cuda.Constant(diag_scalar_one_slice, float32(1.0))
+	// defer cuda.Recycle(diag_scalar_one_slice)
+	// diag_vector_zero_slice = cuda.Buffer(3, size, n_images) // Diagnostic vector slice with all zeros
+	// cuda.Constant(diag_vector_zero_slice, float32(0.0))
+	// defer cuda.Recycle(diag_vector_zero_slice)
 
 	// Initialize force to -\nabla B_eff
 	if mini.f_n == nil { // make sure this is not empty upon first usage
@@ -152,6 +150,7 @@ func (mini *VPOMinimizer) Step() {
 		// Update and increment index on force
 		SetEffectiveField(mini.f_n, &M)                   // f_n arbitrary
 		cuda.Orthogonalize(mini.f_n, mini.f_n, mag_slice) // f_n ⟂ m_n
+
 		if n_images > 1 && MinimizePath {
 			GNEBForceTransformation(mini.f_n, GNEB_kappa, &M)
 		}
@@ -252,6 +251,17 @@ func (mini *VPOMinimizer) Step() {
 	defer cuda.Recycle(mini.f_np1)
 	SetEffectiveField(mini.f_np1, &M)
 	cuda.Orthogonalize(mini.f_np1, mini.f_np1, mag_slice) // f_n+1 ⟂ m_n+1
+	// TODO-olafur: Remove
+	if mini.iter%100 == 0 {
+		CalculateTangents(&M)
+		ProjectTangents(&M)
+		CalculateTotalImageEnergies(&M)
+		t_xs, t_ys := Interpolate_energy_path(&M, cellVolume(), Msat.Average(), 500)
+		LogOut("CHIP x")
+		LogIn(t_xs)
+		LogOut("CHIP y")
+		LogIn(t_ys)
+	}
 	if n_images > 1 && MinimizePath {
 		GNEBForceTransformation(mini.f_np1, GNEB_kappa, &M)
 	}
@@ -345,6 +355,8 @@ func VPOMinimize() {
 		lastF:  FifoRingVPO(FSamplesVPO),
 		iter:   0}
 	stepper = &mini
+
+	FixDt = 1
 
 	// TODO: Reconsider which break condition to use
 	// break condition: change of magnetization is below a reasonable threshold

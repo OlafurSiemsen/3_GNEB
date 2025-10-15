@@ -18,23 +18,28 @@ func init() { DeclLValue("m", &M, `Reduced magnetization (unit length)`) }
 
 // Special buffered quantity to store magnetization
 // makes sure it's normalized etc.
+// TODO-olafur: Merge the data+flags to have nil
 type magnetization struct {
 	buffer_                 *data.Slice
-	n_images                int         // Only used during setup before the buffer is initialized, set to 0 afterwards
+	n_images                int         // Number of images, used to describe the calculation currently in progress
 	E_img                   []float64   // Energy, one for each image
 	E_img_calc              bool        // True if path E_img has been calculated
+	E_derivative            []float64   // Tangential derivatives, i.e. inner product of B_eff and tangent
+	E_derivative_calc       bool        // True if tangential derivatives has been calculated
 	tangent_buffer_         *data.Slice // Contains the tangents pointing from one image to the next
 	tangent_calc            bool        // True if path tangent has been calculated
 	geodesic_tangents_calc  bool        // True if the tangents are orthogonal to m
 	Geodesic_distances      []float64   // Geodesic distance between neighbouring images
 	Geodesic_distances_calc bool        // True if path Geodesic_distances has been calculated
+	climbing_image_index    *int        // Indicates which image is currently climbing, nil means invalid
 }
 
-func (m *magnetization) Mesh() *data.Mesh    { return Mesh() }
-func (m *magnetization) NComp() int          { return 3 }
-func (m *magnetization) Name() string        { return "m" }
-func (m *magnetization) Unit() string        { return "" }
-func (m *magnetization) Buffer() *data.Slice { return m.buffer_ } // todo: rename Gpu()?
+func (m *magnetization) Mesh() *data.Mesh              { return Mesh() }
+func (m *magnetization) NComp() int                    { return 3 }
+func (m *magnetization) Name() string                  { return "m" }
+func (m *magnetization) Unit() string                  { return "" }
+func (m *magnetization) Buffer() *data.Slice           { return m.buffer_ } // todo: rename Gpu()?
+func (m *magnetization) GetTangentBuffer() *data.Slice { return m.tangent_buffer_ }
 
 func (m *magnetization) Comp(c int) ScalarField  { return Comp(m, c) }
 func (m *magnetization) SetValue(v interface{})  { m.SetInShape(nil, v.(Config)) }
@@ -57,7 +62,7 @@ func (m *magnetization) alloc() {
 	m.Set(RandomMag()) // sane starting config
 }
 
-// TODO: Refactor redundancy
+// TODO-olafur: Refactor redundancy
 func (m *magnetization) GetNImages() int {
 	if m.buffer_ == nil {
 		return m.n_images
@@ -70,9 +75,11 @@ func (m *magnetization) GetNImages() int {
 // the magnetization is changed
 func (m *magnetization) reset_calc_flags() {
 	m.E_img_calc = false
+	m.E_derivative_calc = false
 	m.tangent_calc = false
 	m.geodesic_tangents_calc = false
 	m.Geodesic_distances_calc = false
+	m.climbing_image_index = nil
 }
 
 func (m *magnetization) SetNImages(n_images int) {
@@ -104,6 +111,7 @@ func (b *magnetization) SetArray(src *data.Slice, ind_image_variadic ...int) {
 		data.Copy(b.Buffer().SubSlice(ind_image), src)
 	}
 	b.normalize()
+	b.reset_calc_flags()
 }
 
 func (m *magnetization) Set(c Config) {

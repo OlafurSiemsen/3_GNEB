@@ -39,14 +39,14 @@ func CalculateTotalImageEnergies(mag_variadic ...*magnetization) {
 		// E_img already calculated
 		return
 	}
-	n_images := M.GetNImages()
+	n_images := mag.GetNImages()
 	mag.E_img = make([]float64, n_images)
-	for ind_img := range n_images {
-		stored_magnetization_ptr := M.buffer_ // We store a pointer to the original magnetization...
-		mag.buffer_ = M.buffer_.SubSlice(ind_img)
+	stored_magnetization_ptr := mag.buffer_ // We store a pointer to the original magnetization...
+	for ind_img := range n_images {         //... iterate over the images...
+		mag.buffer_ = stored_magnetization_ptr.SubSlice(ind_img)
 		mag.E_img[ind_img] = GetTotalEnergy()
-		mag.buffer_ = stored_magnetization_ptr //...and then restore the original magnetization pointer
 	}
+	mag.buffer_ = stored_magnetization_ptr //...and then restore the original magnetization pointer
 	mag.E_img_calc = true
 }
 
