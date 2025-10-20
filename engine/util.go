@@ -434,6 +434,7 @@ func linspace(start float64, stop float64, n_steps int) []float64 {
 	for ind := range o_xs {
 		o_xs[ind] = start + float64(ind)*step
 	}
+	o_xs[len(o_xs)-1] = stop
 	return o_xs
 }
 

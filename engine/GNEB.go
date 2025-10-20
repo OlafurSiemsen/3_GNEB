@@ -371,8 +371,8 @@ func CalculateGeodesicElasticForces(geodesic_elastic_force *data.Slice, kappa []
 	cuda.Recycle(elastic_force_slice)
 }
 
-// Transforms the real force (energy gradient) to GNEB force according to eq. 14 of https://doi.org/10.1016/j.cpc.2015.07.001.
-func GNEBForceTransformation(energy_gradient *data.Slice, kappa []float32, mag_variadic ...*magnetization) {
+// Transforms the real force (negative energy gradient) to GNEB force according to eq. 14 of https://doi.org/10.1016/j.cpc.2015.07.001.
+func GNEBForceTransformation(B_eff *data.Slice, kappa []float32, mag_variadic ...*magnetization) {
 	var mag *magnetization
 	switch len(mag_variadic) {
 	case 0:
@@ -390,11 +390,14 @@ func GNEBForceTransformation(energy_gradient *data.Slice, kappa []float32, mag_v
 	// LogSlice(energy_gradient, "B_eff⟂m", NSteps)
 	CalculateTangents(mag)
 	ProjectTangents(mag)
+	if ClimbingImage == true {
+		mag.set_climbing_image()
+	}
 	for ind_img := 1; ind_img < n_images-1; ind_img++ {
 		if ClimbingImage == true && ind_img == *mag.climbing_image_index {
 			continue
 		}
-		cuda.Global_Orthogonalize(energy_gradient.SubSlice(ind_img), energy_gradient.SubSlice(ind_img), tangent_slice.SubSlice(ind_img))
+		cuda.Global_Orthogonalize(B_eff.SubSlice(ind_img), B_eff.SubSlice(ind_img), tangent_slice.SubSlice(ind_img))
 	}
 	// LogSlice(M.tangent_buffer_, "τ", NSteps)
 	// LogSlice(energy_gradient, "(B_eff⟂m)⟂τ", NSteps)
@@ -402,7 +405,15 @@ func GNEBForceTransformation(energy_gradient *data.Slice, kappa []float32, mag_v
 	elastic_force_slice := cuda.Buffer(3, mag_slice.Size(), n_images)
 	CalculateGeodesicElasticForces(elastic_force_slice, kappa, mag)
 	// LogSlice(elastic_force_slice, "F_s", NSteps)
-	cuda.Add(energy_gradient, energy_gradient, elastic_force_slice)
+	for ind_img := 1; ind_img < n_images-1; ind_img++ {
+		if ClimbingImage == true && ind_img == *mag.climbing_image_index {
+			continue
+		}
+		cuda.Add(B_eff.SubSlice(ind_img), B_eff.SubSlice(ind_img), elastic_force_slice.SubSlice(ind_img))
+	}
+	if ClimbingImage == true {
+		climbing_force(B_eff, mag, *mag.climbing_image_index)
+	}
 	// LogSlice(energy_gradient, "F_GNEB", NSteps)
 	// Cleanup
 	cuda.Recycle(elastic_force_slice)
@@ -521,7 +532,7 @@ func Interpolate_energy_path(mag *magnetization, cell_volume float64, M_sat floa
 	for ind_img := 0; ind_img < n_images; ind_img++ {
 		gradDOTtau[ind_img] = cell_volume * M_sat * (-float64(cuda.Dot(grad_slice.SubSlice(ind_img), M.tangent_buffer_.SubSlice(ind_img))))
 	}
-	chip := New_CHIP(M.Geodesic_distances, M.E_img, gradDOTtau)
+	chip := New_CHIP(M.Geodesic_distances, M.E_img, gradDOTtau) // TODO-olafur: Make this refer to a field in magnetization
 	o_xs, o_ys := chip.evaluate_on_domain(n_points, true)
 	return o_xs, o_ys
 }
@@ -533,6 +544,17 @@ func climbing_force(Beff *data.Slice, mag *magnetization, climbing_image_index i
 	image_Beff := Beff.SubSlice(climbing_image_index)
 	image_tangent := mag.GetTangentBuffer().SubSlice(climbing_image_index)
 
-	Beff_dot_tau := cuda.Dot(image_Beff, image_tangent)
+	Beff_dot_tau := cuda.Dot(image_Beff, image_tangent) //TODO-olafur: Move to a field in magnetization
 	cuda.Madd2(image_Beff, image_Beff, image_tangent, 1.0, -2*Beff_dot_tau)
+}
+
+func (mag *magnetization) set_climbing_image() {
+	CalculateTotalImageEnergies(mag)
+	E_max := slices.Max(mag.E_img)
+	climbing_image_index := slices.Index(mag.E_img, E_max)
+	mag.climbing_image_index = &climbing_image_index
+}
+
+func (mag *magnetization) CalculateDirectionalDerivatives() {
+
 }

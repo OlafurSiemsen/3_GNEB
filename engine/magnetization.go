@@ -18,7 +18,7 @@ func init() { DeclLValue("m", &M, `Reduced magnetization (unit length)`) }
 
 // Special buffered quantity to store magnetization
 // makes sure it's normalized etc.
-// TODO-olafur: Merge the data+flags to have nil
+// TODO-olafur: Merge the data+flags to have nil as invalid
 type magnetization struct {
 	buffer_                 *data.Slice
 	n_images                int         // Number of images, used to describe the calculation currently in progress
@@ -31,7 +31,7 @@ type magnetization struct {
 	geodesic_tangents_calc  bool        // True if the tangents are orthogonal to m
 	Geodesic_distances      []float64   // Geodesic distance between neighbouring images
 	Geodesic_distances_calc bool        // True if path Geodesic_distances has been calculated
-	climbing_image_index    *int        // Indicates which image is currently climbing, nil means invalid
+	climbing_image_index    *int        // Indicates which image is currently climbing, nil means outdated
 }
 
 func (m *magnetization) Mesh() *data.Mesh              { return Mesh() }
@@ -79,7 +79,7 @@ func (m *magnetization) reset_calc_flags() {
 	m.tangent_calc = false
 	m.geodesic_tangents_calc = false
 	m.Geodesic_distances_calc = false
-	m.climbing_image_index = nil
+	// m.climbing_image_index = nil
 }
 
 func (m *magnetization) SetNImages(n_images int) {

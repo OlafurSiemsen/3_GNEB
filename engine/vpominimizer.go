@@ -4,6 +4,7 @@ package engine
 //   - see minimizer.go for reference
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/mumax/3/cuda"
@@ -132,8 +133,8 @@ func (mini *VPOMinimizer) Step() {
 	// defer cuda.Recycle(diag_scalar_slice1)
 	// diag_scalar_slice2 = cuda.Buffer(1, size, n_images) // Diagnostic scalar slice
 	// defer cuda.Recycle(diag_scalar_slice2)
-	// diag_vector_slice = cuda.Buffer(3, size, n_images) // Diagnostic vector slice
-	// defer cuda.Recycle(diag_vector_slice)
+	diag_vector_slice = cuda.Buffer(3, size, n_images) // Diagnostic vector slice
+	defer cuda.Recycle(diag_vector_slice)
 	// diag_scalar_zero_slice = cuda.Buffer(1, size, n_images) // Diagnostic scalar slice with all zeros
 	// cuda.Constant(diag_scalar_zero_slice, float32(0.0))
 	// defer cuda.Recycle(diag_scalar_zero_slice)
@@ -256,11 +257,26 @@ func (mini *VPOMinimizer) Step() {
 		CalculateTangents(&M)
 		ProjectTangents(&M)
 		CalculateTotalImageEnergies(&M)
+		SetEffectiveField(diag_vector_slice, &M)
+		gradDOTtau := make([]float64, n_images)
+		for ind_img := 0; ind_img < n_images; ind_img++ {
+			gradDOTtau[ind_img] = cellVolume() * Msat.Average() * (-float64(cuda.Dot(diag_vector_slice.SubSlice(ind_img), M.tangent_buffer_.SubSlice(ind_img))))
+		}
+
 		t_xs, t_ys := Interpolate_energy_path(&M, cellVolume(), Msat.Average(), 500)
-		LogOut("CHIP x")
-		LogIn(t_xs)
-		LogOut("CHIP y")
-		LogIn(t_ys)
+
+		log2File(fmt.Sprintf("// Iteration %v", mini.iter))
+		CalculateGeodesicDistances(&M)
+		log2File("// Geodesic distances")
+		log2File(fmt.Sprintf("%v", M.Geodesic_distances))
+		log2File("// Energies")
+		log2File(fmt.Sprintf("%v", M.E_img))
+		log2File("// grad·tau")
+		log2File(fmt.Sprintf("%v", gradDOTtau))
+		log2File("// CHIP x")
+		log2File(fmt.Sprintf("%v", t_xs))
+		log2File("// CHIP y")
+		log2File(fmt.Sprintf("%v", t_ys))
 	}
 	if n_images > 1 && MinimizePath {
 		GNEBForceTransformation(mini.f_np1, GNEB_kappa, &M)
