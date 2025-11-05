@@ -67,7 +67,7 @@ func SetMesh(Nx, Ny, Nz int, cellSizeX, cellSizeY, cellSizeZ float64, pbcx, pbcy
 		globalmesh_ = *data.NewMesh(Nx, Ny, Nz, cellSizeX, cellSizeY, cellSizeZ, pbc...)
 		M.SetNImages(n_images)
 		M.alloc()
-		regions.alloc()
+		Universe_regions.alloc()
 	} else {
 		// here be dragons
 		LogOut("resizing...")
@@ -83,7 +83,7 @@ func SetMesh(Nx, Ny, Nz int, cellSizeX, cellSizeY, cellSizeZ float64, pbcx, pbcy
 		globalmesh_ = *data.NewMesh(Nx, Ny, Nz, cellSizeX, cellSizeY, cellSizeZ, pbc...)
 		if sizeChanged || cellSizeChanged {
 			M.resize()
-			regions.resize()
+			Universe_regions.resize()
 			geometry.buffer.Free()
 			geometry.buffer = data.NilSlice(1, Mesh().Size())
 			geometry.setGeom(geometry.shape)

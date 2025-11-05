@@ -20,8 +20,8 @@ func Voronoi3d(grainsize float64, startRegion int, numRegions int, inputShape Sh
 	defer SetBusy(false)
 
 	t := newTesselation3d(grainsize, numRegions, int64(seed), startRegion, inputShape)
-	regions.hist = append(regions.hist, t.RegionOf)
-	regions.render(t.RegionOf)
+	Universe_regions.hist = append(Universe_regions.hist, t.RegionOf)
+	Universe_regions.render(t.RegionOf)
 }
 
 type tesselation3d struct {

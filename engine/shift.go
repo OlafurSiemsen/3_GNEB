@@ -36,7 +36,7 @@ func Shift(dx int) {
 		shiftMag(M.Buffer(), dx) // TODO: M.shift?
 	}
 	if ShiftRegions {
-		regions.shift(dx)
+		Universe_regions.shift(dx)
 	}
 	if ShiftGeom {
 		geometry.shift(dx)
@@ -65,7 +65,7 @@ func YShift(dy int) {
 		shiftMagY(M.Buffer(), dy)
 	}
 	if ShiftRegions {
-		regions.shiftY(dy)
+		Universe_regions.shiftY(dy)
 	}
 	if ShiftGeom {
 		geometry.shiftY(dy)

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+
 	"github.com/mumax/3/cuda"
 	"github.com/mumax/3/data"
 	"github.com/mumax/3/util"
@@ -54,7 +55,7 @@ func (q *oneReg) Slice() (*data.Slice, bool) {
 	src := ValueOf(q.parent)
 	defer cuda.Recycle(src)
 	out := cuda.Buffer(q.NComp(), q.Mesh().Size())
-	cuda.RegionSelect(out, src, regions.Gpu(), byte(q.region))
+	cuda.RegionSelect(out, src, Universe_regions.Gpu(), byte(q.region))
 	return out, true
 }
 
@@ -64,7 +65,7 @@ func (q *oneReg) average() []float64 {
 		defer cuda.Recycle(slice)
 	}
 	avg := sAverageUniverse(slice)
-	sDiv(avg, regions.volume(q.region))
+	sDiv(avg, Universe_regions.volume(q.region))
 	return avg
 }
 

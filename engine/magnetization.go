@@ -235,28 +235,40 @@ func (m *magnetization) SetInShape(region Shape, conf Config, ind_image_variadic
 }
 
 // set m to config in region
-func (m *magnetization) SetRegion(region int, conf Config) {
+func (m *magnetization) SetRegion(region int, conf Config, ind_image_variadic ...int) {
 	host := m.Buffer().HostCopy()
-	h := host.Vectors()
 	n := m.Mesh().Size()
 	r := byte(region)
+	// ind_image_variadic := []int{} // TODO-olafur: remove diagnostic overrride
+	regionsArr := Universe_regions.HostArray()
+	images_specified := len(ind_image_variadic) != 0 // Checks if the user specified images to save
+	stored_host_ptr := host                          // We store a pointer to the original magnetization...
+	var h [3][][][]float32
+	n_images := m.GetNImages()
 
-	regionsArr := regions.HostArray()
-
-	for iz := 0; iz < n[Z]; iz++ {
-		for iy := 0; iy < n[Y]; iy++ {
-			for ix := 0; ix < n[X]; ix++ {
-				pos := Index2Coord(ix, iy, iz)
-				x, y, z := pos[X], pos[Y], pos[Z]
-				if regionsArr[iz][iy][ix] == r {
-					m := conf(x, y, z)
-					h[X][iz][iy][ix] = float32(m[X])
-					h[Y][iz][iy][ix] = float32(m[Y])
-					h[Z][iz][iy][ix] = float32(m[Z])
+	for it_image := 0; it_image < n_images; it_image++ {
+		if images_specified && !slices.Contains(ind_image_variadic, it_image) { // Skips images that weren't specified by user
+			continue
+		}
+		host = stored_host_ptr.SubSlice(it_image) // ...iterate over the images...
+		h = host.Vectors()
+		for iz := 0; iz < n[Z]; iz++ {
+			for iy := 0; iy < n[Y]; iy++ {
+				for ix := 0; ix < n[X]; ix++ {
+					pos := Index2Coord(ix, iy, iz)
+					x, y, z := pos[X], pos[Y], pos[Z]
+					if regionsArr[iz][iy][ix] == r {
+						m := conf(x, y, z)
+						h[X][iz][iy][ix] = float32(m[X])
+						h[Y][iz][iy][ix] = float32(m[Y])
+						h[Z][iz][iy][ix] = float32(m[Z])
+					}
 				}
 			}
 		}
 	}
+	host = stored_host_ptr // ...and then restore the original magnetization pointer
+	LogSlice(host, "mag mod host")
 	m.SetArray(host)
 }
 
@@ -270,9 +282,9 @@ func (m *magnetization) resize() {
 }
 
 // Adds random noise to the magnetization in the form of a field of scaled random vectors.
-func (m *magnetization) AddRandomNoise(region Shape, scale float32, ind_image_variadic ...int) {
+func (m *magnetization) AddRandomNoise(region Shape, scale float64, ind_image_variadic ...int) {
 	checkMesh()
-
+	scale32 := float32(scale)
 	if region == nil {
 		region = universe
 	}
@@ -296,7 +308,7 @@ func (m *magnetization) AddRandomNoise(region Shape, scale float32, ind_image_va
 					x, y, z := r[X], r[Y], r[Z]
 					if region(x, y, z) { // inside
 						for icomp := 0; icomp < 3; icomp++ {
-							h[icomp][iz][iy][ix] += scale * 2 * (random_generator.Float32() - 0.5)
+							h[icomp][iz][iy][ix] += scale32 * 2 * (random_generator.Float32() - 0.5)
 						}
 
 					}

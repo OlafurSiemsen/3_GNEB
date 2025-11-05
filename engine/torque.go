@@ -124,7 +124,7 @@ func AddSTTorque(dst *data.Slice) {
 
 func FreezeSpins(dst *data.Slice) {
 	if !FrozenSpins.isZero() {
-		cuda.ZeroMask(dst, FrozenSpins.gpuLUT1(), regions.Gpu())
+		cuda.ZeroMask(dst, FrozenSpins.gpuLUT1(), Universe_regions.Gpu())
 	}
 }
 

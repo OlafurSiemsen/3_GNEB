@@ -6,14 +6,14 @@ import (
 	"github.com/mumax/3/util"
 )
 
-var regions = Regions{info: info{1, "regions", ""}} // global regions map
+var Universe_regions = Regions{info: info{1, "regions", ""}} // global regions map
 
 const NREGION = 256 // maximum number of regions, limited by size of byte.
 
 func init() {
 	DeclFunc("DefRegion", DefRegion, "Define a material region with given index (0-255) and shape")
 	DeclFunc("RedefRegion", RedefRegion, "Reassign all cells with a given region (first argument) to a new region (second argument)")
-	DeclROnly("regions", &regions, "Outputs the region index for each cell")
+	DeclROnly("regions", &Universe_regions, "Outputs the region index for each cell")
 	DeclFunc("DefRegionCell", DefRegionCell, "Set a material region (first argument) in one cell "+
 		"by the index of the cell (last three arguments)")
 }
@@ -50,8 +50,8 @@ func DefRegion(id int, s Shape) {
 			return -1
 		}
 	}
-	regions.render(f)
-	regions.hist = append(regions.hist, f)
+	Universe_regions.render(f)
+	Universe_regions.hist = append(Universe_regions.hist, f)
 }
 
 // Redefine a region with a given ID to a new ID
@@ -60,11 +60,11 @@ func RedefRegion(startId, endId int) {
 	defRegionId(startId)
 	defRegionId(endId)
 
-	hist_len := len(regions.hist) // Only consider hist before this Redef to avoid recursion
+	hist_len := len(Universe_regions.hist) // Only consider hist before this Redef to avoid recursion
 	f := func(x, y, z float64) int {
 		value := -1
 		for i := hist_len - 1; i >= 0; i-- {
-			f_other := regions.hist[i]
+			f_other := Universe_regions.hist[i]
 			region := f_other(x, y, z)
 			if region >= 0 {
 				value = region
@@ -77,8 +77,8 @@ func RedefRegion(startId, endId int) {
 			return value
 		}
 	}
-	regions.redefine(startId, endId)
-	regions.hist = append(regions.hist, f)
+	Universe_regions.redefine(startId, endId)
+	Universe_regions.hist = append(Universe_regions.hist, f)
 }
 
 // renders (rasterizes) shape, filling it with region number #id, between x1 and x2
@@ -140,14 +140,14 @@ func (r *Regions) HostArray() [][][]byte {
 
 func (r *Regions) HostList() []byte {
 	regionsList := make([]byte, r.Mesh().NCell())
-	regions.gpuCache.Download(regionsList)
+	Universe_regions.gpuCache.Download(regionsList)
 	return regionsList
 }
 
 func DefRegionCell(id int, x, y, z int) {
 	defRegionId(id)
 	index := data.Index(Mesh().Size(), x, y, z)
-	regions.gpuCache.Set(index, byte(id))
+	Universe_regions.gpuCache.Set(index, byte(id))
 }
 
 // Load regions from ovf file, use first component.
@@ -236,13 +236,13 @@ func init() {
 // Get returns the regions as a slice of floats, so it can be output.
 func (r *Regions) Slice() (*data.Slice, bool) {
 	buf := cuda.Buffer(1, r.Mesh().Size())
-	cuda.RegionDecode(buf, unitMap.gpuLUT1(), regions.Gpu())
+	cuda.RegionDecode(buf, unitMap.gpuLUT1(), Universe_regions.Gpu())
 	return buf, true
 }
 
 func (r *Regions) EvalTo(dst *data.Slice) { EvalTo(r, dst) }
 
-var _ Quantity = &regions
+var _ Quantity = &Universe_regions
 
 // Re-interpret a contiguous array as a multi-dimensional array of given size.
 func reshapeBytes(array []byte, size [3]int) [][][]byte {

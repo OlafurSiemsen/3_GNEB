@@ -90,7 +90,7 @@ func NewSlice(nComp int, size [3]int, n_images_variadic ...int) *Slice {
 	var length int
 	n_images := ImageNumber(n_images_variadic)
 	if n_images != 1 {
-		length = n_images * prod(size)
+		length = n_images * prod(size) // TODO-olafur: Refactor
 	} else {
 		length = prod(size)
 	}
@@ -110,7 +110,7 @@ func SliceFromArray(data [][]float32, size [3]int, n_images_variadic ...int) *Sl
 	var length int
 	n_images := ImageNumber(n_images_variadic)
 	if n_images != 1 {
-		length = n_images * prod(size)
+		length = n_images * prod(size) // TODO-olafur: Refactor
 	} else {
 		length = prod(size)
 	}
@@ -142,7 +142,7 @@ func NilSlice(nComp int, size [3]int, n_images_slice ...int) *Slice {
 func SliceFromPtrs(size [3]int, memType int8, ptrs []unsafe.Pointer, n_images_variadic ...int) *Slice {
 	var length int
 	n_images := ImageNumber(n_images_variadic)
-	if n_images != 1 { // Checks if we're doing GNEB
+	if n_images != 1 { // Checks if we're doing GNEB TODO-olafur: Refactor
 		length = n_images * prod(size)
 	} else {
 		length = prod(size)

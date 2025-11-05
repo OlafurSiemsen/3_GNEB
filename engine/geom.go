@@ -100,18 +100,26 @@ func cleanMagnetization(geomSlice *data.Slice) {
 	needupload := false
 	geomlist := geomSlice.Host()[0]
 	mhost := M.Buffer().HostCopy()
-	m := mhost.Host()
+	var m [][]float32
 	rng := rand.New(rand.NewSource(0))
-	for i := range m[0] {
-		if geomlist[i] != 0 {
-			mx, my, mz := m[X][i], m[Y][i], m[Z][i]
-			if mx == 0 && my == 0 && mz == 0 {
-				needupload = true
-				rnd := randomDir(rng)
-				m[X][i], m[Y][i], m[Z][i] = float32(rnd[X]), float32(rnd[Y]), float32(rnd[Z])
+	nCells := prod(mhost.Size())
+
+	stored_mhost_ptr := mhost // We store a pointer to the original magnetization...
+	n_images := M.GetNImages()
+	for it_image := 0; it_image < n_images; it_image++ {
+		m = stored_mhost_ptr.SubSlice(it_image).Host()
+		for i := range nCells {
+			if geomlist[i] != 0 {
+				mx, my, mz := m[X][i], m[Y][i], m[Z][i]
+				if mx == 0 && my == 0 && mz == 0 {
+					needupload = true
+					rnd := randomDir(rng)
+					m[X][i], m[Y][i], m[Z][i] = float32(rnd[X]), float32(rnd[Y]), float32(rnd[Z])
+				}
 			}
 		}
 	}
+	mhost = stored_mhost_ptr
 	if needupload {
 		data.Copy(M.Buffer(), mhost)
 	}

@@ -15,8 +15,8 @@ func Voronoi(grainsize float64, numRegions, seed int) {
 	defer SetBusy(false)
 
 	t := newTesselation(grainsize, numRegions, int64(seed))
-	regions.hist = append(regions.hist, t.RegionOf)
-	regions.render(t.RegionOf)
+	Universe_regions.hist = append(Universe_regions.hist, t.RegionOf)
+	Universe_regions.render(t.RegionOf)
 }
 
 type tesselation struct {

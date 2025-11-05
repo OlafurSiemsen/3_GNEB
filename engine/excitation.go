@@ -1,12 +1,13 @@
 package engine
 
 import (
+	"math"
+	"reflect"
+
 	"github.com/mumax/3/cuda"
 	"github.com/mumax/3/data"
 	"github.com/mumax/3/script"
 	"github.com/mumax/3/util"
-	"math"
-	"reflect"
 )
 
 // An excitation, typically field or current,
@@ -39,7 +40,7 @@ func (p *Excitation) MSlice() cuda.MSlice {
 
 func (e *Excitation) AddTo(dst *data.Slice) {
 	if !e.perRegion.isZero() {
-		cuda.RegionAddV(dst, e.perRegion.gpuLUT(), regions.Gpu())
+		cuda.RegionAddV(dst, e.perRegion.gpuLUT(), Universe_regions.Gpu())
 	}
 
 	for _, t := range e.extraTerms {
