@@ -18,7 +18,6 @@ func init() { DeclLValue("m", &M, `Reduced magnetization (unit length)`) }
 
 // Special buffered quantity to store magnetization
 // makes sure it's normalized etc.
-// TODO-olafur: Merge the data+flags to have nil as invalid
 type magnetization struct {
 	buffer_                 *data.Slice
 	n_images                int         // Number of images, used to describe the calculation currently in progress
@@ -92,7 +91,8 @@ func (m *magnetization) SetNImages(n_images int) {
 	// m.buffer_.N_images = n_images
 }
 
-// TODO: Perhaps also change the tangent slice to a subslice
+// TODO-olafur: Perhaps also change the tangent slice to a subslice.
+// TODO-olafur: Consider removing
 func (i_magnetization *magnetization) SubMagnetization(ind_image int) *magnetization {
 	o_magnetization := *i_magnetization
 	o_magnetization.buffer_ = o_magnetization.buffer_.SubSlice(ind_image)
@@ -268,7 +268,6 @@ func (m *magnetization) SetRegion(region int, conf Config, ind_image_variadic ..
 		}
 	}
 	host = stored_host_ptr // ...and then restore the original magnetization pointer
-	LogSlice(host, "mag mod host")
 	m.SetArray(host)
 }
 

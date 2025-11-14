@@ -18,6 +18,7 @@
 	The figure of merit for this stage is
 		1. Automated confirmation that the angle (dot product) between the vectors
 		in adjacent images is identical.
+	TODO-olafur: Check that the output to terminal is correctly formatted
 */
 
 package main
