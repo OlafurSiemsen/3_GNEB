@@ -60,6 +60,7 @@ func Save(q Quantity, ind_image_variadic ...int) {
 }
 
 // Save under given file name (transparent async I/O).
+// TODO-olafur: Rework, Clean up
 func SaveAs(q Quantity, fname string, ind_image_variadic ...int) {
 
 	if !strings.HasPrefix(fname, OD()) {

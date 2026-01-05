@@ -4,18 +4,19 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 
 	"github.com/mumax/3/cuda"
 	"github.com/mumax/3/data"
 )
 
-// TODO: Remove?
+// TODO-olafur: Remove?
 type GNEB_params struct {
 	kappa    []float32
 	max_iter int
 }
 
-// TODO: Remove?
+// TODO-olafur: Remove?
 func New_GNEB_params(max_iter int, kappa []float32, n_images int) GNEB_params {
 	switch len(kappa) {
 	case 1:
@@ -137,7 +138,7 @@ func AngularInterpolation(dst *data.Slice, normalize bool, ind_image_variadic ..
 	cuda.Recycle(sin_slice)
 }
 
-// TODO: Make this into an all-cuda function, rework doc string?
+// TODO-olafur: Make this into an all-cuda function, rework doc string?
 // Implements Rodrigues' axis/angle rotation formula.
 // Takes in src and rotation_axes, 3d slices and slices containing the cos and sin
 // of the rotation angles. Rotates the vectors in src around the vectors in rotation_axes
@@ -283,7 +284,7 @@ func ProjectTangents(mag_variadic ...*magnetization) {
 	n_images := mag_slice.N_images
 	// n_images := mag_slice.N_images
 	cuda.Orthogonalize(tangent_slice, tangent_slice, mag_slice)
-	// TODO: Implement cases for last and first image
+	// TODO-olafur: Implement cases for last and first image
 	for ind_img := 1; ind_img < n_images-1; ind_img++ {
 		norm := cuda.Dot(tangent_slice.SubSlice(ind_img), tangent_slice.SubSlice(ind_img))
 		norm = float32(math.Sqrt(float64(norm))) // Ugh
@@ -513,28 +514,33 @@ func (chip *CHIP) evaluate(xs_in []float64, add_nodes bool) []float64 {
 }
 
 func (chip *CHIP) evaluate_on_domain(n_steps int, add_nodes bool) ([]float64, []float64) {
-	xs := linspace(chip.x_min, chip.x_max, n_steps)
+	var xs []float64
 	if add_nodes == true {
-		xs = append(xs, chip.x_arr[1:len(chip.x_arr)-1]...)
-		slices.Sort(xs)
+		xs = linspace(chip.x_min, chip.x_max, n_steps-M.GetNImages())
+		xs = append(chip.x_arr, xs...)
+		// slices.Sort(xs)
+	}
+	if add_nodes == false {
+		xs = linspace(chip.x_min, chip.x_max, n_steps)
 	}
 	return xs, chip.evaluate(xs, false)
 }
 
-func Interpolate_energy_path(mag *magnetization, cell_volume float64, M_sat float64, n_points int) ([]float64, []float64) {
+func Interpolate_energy_path(mag *magnetization, cell_volume float64, M_sat float64, n_points int) ([]float64, []float64, *CHIP) {
 	mag_slice := mag.Buffer()
 	size := mag_slice.Size()
 	n_images := mag.GetNImages()
 	grad_slice := cuda.Buffer(3, size, n_images)
 	defer cuda.Recycle(grad_slice)
 	SetEffectiveField(grad_slice, mag)
+	CalculateGeodesicDistances(&M)
 	gradDOTtau := make([]float64, n_images)
 	for ind_img := 0; ind_img < n_images; ind_img++ {
 		gradDOTtau[ind_img] = cell_volume * M_sat * (-float64(cuda.Dot(grad_slice.SubSlice(ind_img), M.tangent_buffer_.SubSlice(ind_img))))
 	}
 	chip := New_CHIP(M.Geodesic_distances, M.E_img, gradDOTtau) // TODO-olafur: Make this refer to a field in magnetization
 	o_xs, o_ys := chip.evaluate_on_domain(n_points, true)
-	return o_xs, o_ys
+	return o_xs, o_ys, chip
 }
 
 // Inverts the gradient along the direction tangental to the path
@@ -555,6 +561,33 @@ func (mag *magnetization) set_climbing_image() {
 	mag.climbing_image_index = &climbing_image_index
 }
 
-func (mag *magnetization) CalculateDirectionalDerivatives() {
-
+// TODO-olafur: The Grand Rework
+// Nasty little function to minimize one image in the magnetization struct
+// Mode is one of "Relax", "VPOMinimize", or "Minimize" (default)
+func MinimizeImage(mag_slice *magnetization, mode string, ind_image_variadic ...int) {
+	stored_mag_ptr := mag_slice.buffer_
+	mesh := mag_slice.Mesh()
+	gridsize := mesh.Size()
+	cellsize := mesh.CellSize()
+	pbc := mesh.PBC()
+	SetMesh(gridsize[0], gridsize[1], gridsize[2],
+		cellsize[0], cellsize[1], cellsize[2],
+		pbc[0], pbc[1], pbc[2],
+		1)
+	for _, ind_image := range ind_image_variadic {
+		M.buffer_ = stored_mag_ptr.SubSlice(ind_image)
+		switch {
+		case strings.ToLower(mode) == "relax":
+			Relax()
+		case strings.ToLower(mode) == "vpominimize":
+			VPOMinimize()
+		default:
+			Minimize()
+		}
+	}
+	SetMesh(gridsize[0], gridsize[1], gridsize[2],
+		cellsize[0], cellsize[1], cellsize[2],
+		pbc[0], pbc[1], pbc[2],
+		stored_mag_ptr.N_images)
+	M.buffer_ = stored_mag_ptr
 }

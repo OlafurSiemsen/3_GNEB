@@ -4,11 +4,16 @@ package engine
 //   - see minimizer.go for reference
 
 import (
+	"bufio"
 	"fmt"
 	"math"
+	"os"
+	"strings"
+	"time"
 
 	"github.com/mumax/3/cuda"
 	"github.com/mumax/3/data"
+	"github.com/mumax/3/util"
 )
 
 // Some generic parameter values which can be overwritten by init()
@@ -19,16 +24,17 @@ var (
 	recip2mVPO  = 0.5 / massVPO
 	stepsizeVPO = 0.05 // dt effective time step
 	//MaxForce          = 100.0	// TODO: maximal allowed force???
-	DmSamplesVPO  int       = 10             // number of dm to keep for convergence check
-	StopMaxDmVPO  float64   = 1e-6           // stop minimizer if sampled dm is smaller than this
-	FSamplesVPO   int       = 1              // Number of max F to keep for convergence check
-	StopMaxFVPO   float64   = 1e-6           // stop minimizer if sampled maximum force is smaller than this
-	MaxIterVPO    int       = 20000          // Maximum number of iterations
-	MinimizePath  bool      = true           // True if the path should be minimized, false if each image is minimized seperately
-	FixEndImages  bool      = true           // True if the first and last images are not to be modified
-	ClimbingImage bool      = true           // True if one image is to climb towards a saddle point
-	AdvanceTime   bool      = false          // Whether to increment time globally - time is reset at the end
-	GNEB_kappa    []float32 = []float32{2.0} // Spring constants for the inter-image elastic forces
+	DmSamplesVPO      int       = 10             // number of dm to keep for convergence check
+	StopMaxDmVPO      float64   = 1e-6           // stop minimizer if sampled dm is smaller than this
+	FSamplesVPO       int       = 1              // Number of max F to keep for convergence check
+	StopMaxFVPO       float64   = 1e-6           // stop minimizer if sampled maximum force is smaller than this
+	MaxIterVPO        int       = 200000         // Maximum number of iterations
+	MinimizePath      bool      = true           // True if the path should be minimized, false if each image is minimized seperately
+	FixEndImages      bool      = true           // True if the first and last images are not to be modified
+	ClimbingImage     bool      = true           // True if one image is to climb towards a saddle point
+	AdvanceTime       bool      = false          // Whether to increment time globally - time is reset at the end
+	GNEB_kappa        []float32 = []float32{2.0} // Spring constants for the inter-image elastic forces
+	NPointsEnergyCHIP int       = 0
 
 	//Diagnostic outputs, TODO:Remove, or at least disable for performance
 	LastMaxVPOForce     float64
@@ -91,12 +97,16 @@ func (r *fifoRingVPO) Max() float64 {
 
 // objects that need to be stored for next iteration step
 type VPOMinimizer struct {
-	f_n    *data.Slice // force n
-	f_np1  *data.Slice // force n+1
-	v      *data.Slice // velocity
-	lastDm fifoRingVPO
-	lastF  fifoRingVPO
-	iter   int // current number of iterations
+	f_n         *data.Slice // force n
+	f_np1       *data.Slice // force n+1
+	v           *data.Slice // velocity
+	lastDm      fifoRingVPO
+	lastF       fifoRingVPO
+	iter        int // current number of iterations
+	file_map    map[string]*os.File
+	writer_map  map[string]*bufio.Writer
+	energy_chip *CHIP // Cubic hermite interpolation polynomial for the energy
+	OutputDir   string
 }
 
 // VPOMinimizer step
@@ -199,7 +209,6 @@ func (mini *VPOMinimizer) Step() {
 	defer cuda.Recycle(vtilde)
 	cuda.Madd2(vtilde, mini.v, mini.f_n, 1, float32(recip2mVPO*stepsizeVPO))
 	cuda.RotateVectors(mag_slice, vtilde, float32(stepsizeVPO))
-	// TODO: this rotates each vector accoring to the length of the corresponding v vector - should this be the 'global norm instead?
 	// Since the magnetization of each image is changed, the quantities related to
 	// the path need to be recalculated
 	M.reset_calc_flags()
@@ -263,20 +272,17 @@ func (mini *VPOMinimizer) Step() {
 			gradDOTtau[ind_img] = cellVolume() * Msat.Average() * (-float64(cuda.Dot(diag_vector_slice.SubSlice(ind_img), M.tangent_buffer_.SubSlice(ind_img))))
 		}
 
-		t_xs, t_ys := Interpolate_energy_path(&M, cellVolume(), Msat.Average(), 500)
-
-		log2File(fmt.Sprintf("// Iteration %v", mini.iter))
-		CalculateGeodesicDistances(&M)
-		log2File("// Geodesic distances")
-		log2File(fmt.Sprintf("%v", M.Geodesic_distances))
-		log2File("// Energies")
-		log2File(fmt.Sprintf("%v", M.E_img))
-		log2File("// grad·tau")
-		log2File(fmt.Sprintf("%v", gradDOTtau))
-		log2File("// CHIP x")
-		log2File(fmt.Sprintf("%v", t_xs))
-		log2File("// CHIP y")
-		log2File(fmt.Sprintf("%v", t_ys))
+		t_xs, t_ys, t_chip := Interpolate_energy_path(&M, cellVolume(), Msat.Average(), NPointsEnergyCHIP)
+		mini.energy_chip = t_chip
+		// Janky output
+		csv_lines := fmt.Sprintf("%v,", mini.iter) + fmt.Sprintf("%E", t_xs) + "," + fmt.Sprintf("%E", t_ys) + "\n"
+		csv_lines = strings.ReplaceAll(csv_lines, " ", ",")
+		csv_lines = strings.ReplaceAll(csv_lines, "[", "")
+		csv_lines = strings.ReplaceAll(csv_lines, "]", "")
+		mini.writer_map["EnergyPathCHIP.csv"].WriteString(csv_lines)
+		if mini.iter%1000 == 0 {
+			SnapshotAs(&M, OD()+mini.OutputDir+fmt.Sprintf("iter%06d.png", mini.iter))
+		}
 	}
 	if n_images > 1 && MinimizePath {
 		GNEBForceTransformation(mini.f_np1, GNEB_kappa, &M)
@@ -365,16 +371,32 @@ func VPOMinimize() {
 
 	// set stepper to the VPOMinimizer
 	mini := VPOMinimizer{
-		f_n:    nil,
-		v:      nil,
-		lastDm: FifoRingVPO(DmSamplesVPO),
-		lastF:  FifoRingVPO(FSamplesVPO),
-		iter:   0}
+		f_n:        nil,
+		v:          nil,
+		lastDm:     FifoRingVPO(DmSamplesVPO),
+		lastF:      FifoRingVPO(FSamplesVPO),
+		iter:       0,
+		file_map:   make(map[string]*os.File, 0),
+		writer_map: make(map[string]*bufio.Writer, 0)}
+	fname_slice := []string{"EnergyPathCHIP.csv"}
+	t_time := time.Now()
+	mini.OutputDir = fmt.Sprintf("VPO%02v%02v%02v.out/", t_time.Hour(), t_time.Minute(), t_time.Second())
+	for _, it_fname := range fname_slice {
+		// TODO-olafur: Abstract and funcitonalize
+		err := os.Mkdir(OD()+mini.OutputDir, 0755)
+		util.FatalErr(err)
+		t_file, err := os.Create(OD() + mini.OutputDir + it_fname)
+		util.FatalErr(err)
+		mini.file_map[it_fname] = t_file
+		t_writer := bufio.NewWriter(t_file)
+		mini.writer_map[it_fname] = t_writer
+	}
+	EnergyPathCHIP_header := GenerateCSVHeader([]string{"x", "y"}, NPointsEnergyCHIP, true)
+	mini.writer_map["EnergyPathCHIP.csv"].WriteString(EnergyPathCHIP_header)
 	stepper = &mini
-
 	FixDt = 1
 
-	// TODO: Reconsider which break condition to use
+	// TODO-olafur: Reconsider which break condition to use
 	// break condition: change of magnetization is below a reasonable threshold
 	cond := func() bool {
 		// return (((mini.lastDm.count < DmSamplesVPO) || (mini.lastF.Max() > StopMaxFVPO)) && NSteps < MaxIterVPO)
@@ -382,7 +404,30 @@ func VPOMinimize() {
 	}
 
 	RunWhile(cond)
+	if mini.iter == MaxIterVPO {
+		LogOut("Warning! Maximum iterations reached in VPO")
+	}
+	SaveAs(&M, mini.OutputDir+"M_minimized")
 	pause = true
+	for it_fname, _ := range mini.writer_map {
+		mini.writer_map[it_fname].Flush()
+		mini.file_map[it_fname].Close()
+	}
+
+	// Cleanup
+	if LastVPOVelocity != nil {
+		cuda.Recycle(LastVPOVelocity)
+		LastVPOVelocity = nil
+	}
+	if LastBeffperp != nil {
+		cuda.Recycle(LastBeffperp)
+		LastBeffperp = nil
+	}
+	if Lastvdotfrot != nil {
+		cuda.Recycle(Lastvdotfrot)
+		Lastvdotfrot = nil
+	}
+
 	SetSolver(prevType)
 	FixDt = prevFixDt
 	Precess = prevPrecess

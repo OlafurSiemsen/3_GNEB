@@ -123,6 +123,7 @@ func (mini *Minimizer) Free() {
 	mini.k.Free()
 }
 
+// Minimizes energy via conjugate gradient. Fast but can fail for very high energy initial states, e.g. random init.
 func Minimize() {
 	Refer("exl2014")
 	SanityCheck()

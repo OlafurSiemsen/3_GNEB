@@ -482,3 +482,32 @@ const (
 	SCALAR = 1
 	VECTOR = 3
 )
+
+func GenerateCSVHeader(var_names []string, var_num int, csv_system_info bool) string {
+	o_string := ""
+	o_string += fmt.Sprintln("# Gridsize=", Mesh().Size())
+	o_string += fmt.Sprintln("# CellSize=", Mesh().CellSize(), Mesh().Unit)
+	o_string += fmt.Sprintln("# PBC=", Mesh().PBC())
+	o_string += fmt.Sprintln("# N_Images=", M.GetNImages())
+	o_string += fmt.Sprintln("# Msat=", Msat.Average(), Msat.Unit())
+	o_string += fmt.Sprintln("# Aex=", Aex.Average(), Aex.Unit())
+	o_string += fmt.Sprintln("# Alpha=", Alpha.Average(), Alpha.Unit())
+	o_string += fmt.Sprintln("# Ku1=", Ku1.Average(), Ku1.Unit())
+	o_string += fmt.Sprintln("# Ku2=", Ku2.Average(), Ku2.Unit())
+	o_string += fmt.Sprintln("# AnisU=", AnisU.Average(), AnisU.Unit())
+	o_string += fmt.Sprintln("# B_ext=", B_ext.Average(), B_ext.Unit())
+	o_string += fmt.Sprintln("# Dbulk=", Dbulk.Average(), Dbulk.Unit())
+	o_string += fmt.Sprintln("# Dind=", Dind.Average(), Dind.unit)
+	o_string += fmt.Sprintln("# GNEB_kappa=", GNEB_kappa)
+	o_string = o_string + "iteration,"
+	n_digits := int(math.Ceil(math.Log10(float64(var_num))))
+	csv_header_format := fmt.Sprintf("%%v%%0%dd,", n_digits)
+	vname_slice := []string{"x", "y"}
+	for _, vname := range vname_slice {
+		for n := range var_num {
+			o_string = o_string + fmt.Sprintf(csv_header_format, vname, n)
+		}
+	}
+	o_string = strings.TrimRight(o_string, ",") + "\n"
+	return o_string
+}
