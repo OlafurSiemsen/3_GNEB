@@ -100,6 +100,7 @@ type VPOMinimizer struct {
 	f_n         *data.Slice // force n
 	f_np1       *data.Slice // force n+1
 	v           *data.Slice // velocity
+	vtilde      *data.Slice // Modified velocity, vtilde = v + f_n * recip2mVPO*stepsizeVPO
 	lastDm      fifoRingVPO
 	lastF       fifoRingVPO
 	iter        int // current number of iterations
@@ -156,8 +157,8 @@ func (mini *VPOMinimizer) Step() {
 	// defer cuda.Recycle(diag_vector_zero_slice)
 
 	// Initialize force to -\nabla B_eff
-	if mini.f_n == nil { // make sure this is not empty upon first usage
-		mini.f_n = cuda.Buffer(3, size, n_images)
+	if mini.iter == 0 { // make sure this is not empty upon first usage
+		// mini.f_n = cuda.Buffer(3, size, n_images)
 		// Update and increment index on force
 		SetEffectiveField(mini.f_n, &M)                   // f_n arbitrary
 		cuda.Orthogonalize(mini.f_n, mini.f_n, mag_slice) // f_n ⟂ m_n
@@ -169,7 +170,7 @@ func (mini *VPOMinimizer) Step() {
 
 	// Initialize velocity to 0
 	if mini.v == nil {
-		mini.v = cuda.Buffer(3, size, n_images)
+		// mini.v = cuda.Buffer(3, size, n_images)
 		cuda.Zero3(mini.v)
 	}
 
@@ -205,10 +206,9 @@ func (mini *VPOMinimizer) Step() {
 	}
 
 	// Update m_n to m_{n+1}
-	vtilde := cuda.Buffer(3, size, n_images)
-	defer cuda.Recycle(vtilde)
-	cuda.Madd2(vtilde, mini.v, mini.f_n, 1, float32(recip2mVPO*stepsizeVPO))
-	cuda.RotateVectors(mag_slice, vtilde, float32(stepsizeVPO))
+	// vtilde := cuda.Buffer(3, size, n_images)
+	cuda.Madd2(mini.vtilde, mini.v, mini.f_n, 1, float32(recip2mVPO*stepsizeVPO))
+	cuda.RotateVectors(mag_slice, mini.vtilde, float32(stepsizeVPO))
 	// Since the magnetization of each image is changed, the quantities related to
 	// the path need to be recalculated
 	M.reset_calc_flags()
@@ -257,11 +257,10 @@ func (mini *VPOMinimizer) Step() {
 		CompareSlices2Log(diag_scalar_slice1, diag_scalar_zero_slice, log_mode, print_mode, panic_mode, NSteps, ": v_n ∈ span(m_n, m_n+1) after cotangent space rotation")
 	}
 	// Update v_n to v_{n+1}
-	mini.f_np1 = cuda.Buffer(3, size, n_images)
-	defer cuda.Recycle(mini.f_np1)
+	// mini.f_np1 = cuda.Buffer(3, size, n_images)
 	SetEffectiveField(mini.f_np1, &M)
 	cuda.Orthogonalize(mini.f_np1, mini.f_np1, mag_slice) // f_n+1 ⟂ m_n+1
-	// TODO-olafur: Remove
+	// TODO-olafur: Rework
 	if mini.iter%100 == 0 {
 		CalculateTangents(&M)
 		ProjectTangents(&M)
@@ -275,17 +274,17 @@ func (mini *VPOMinimizer) Step() {
 		t_xs, t_ys, t_chip := Interpolate_energy_path(&M, cellVolume(), Msat.Average(), NPointsEnergyCHIP)
 		mini.energy_chip = t_chip
 		// Janky output
-		csv_lines := fmt.Sprintf("%v,", mini.iter) + fmt.Sprintf("%E", t_xs) + "," + fmt.Sprintf("%E", t_ys) + "\n"
+		csv_lines := fmt.Sprintf("%v,", mini.iter) + go_slice_to_csv_line(append(t_xs, t_ys...))
 		csv_lines = strings.ReplaceAll(csv_lines, " ", ",")
 		csv_lines = strings.ReplaceAll(csv_lines, "[", "")
 		csv_lines = strings.ReplaceAll(csv_lines, "]", "")
 		mini.writer_map["EnergyPathCHIP.csv"].WriteString(csv_lines)
-		if mini.iter%1000 == 0 {
-			SnapshotAs(&M, OD()+mini.OutputDir+fmt.Sprintf("iter%06d.png", mini.iter))
-		}
 	}
 	if n_images > 1 && MinimizePath {
 		GNEBForceTransformation(mini.f_np1, GNEB_kappa, &M)
+	}
+	if mini.iter%1000 == 0 && mini.iter != 0 {
+		SnapshotAs(&M, OD()+mini.OutputDir+fmt.Sprintf("mag_iter%06d.png", mini.iter))
 	}
 	fac := float32(stepsizeVPO * recip2mVPO)
 	cuda.Madd3(mini.v, mini.v, mini.f_n, mini.f_np1, 1, fac, fac)
@@ -334,9 +333,9 @@ func (mini *VPOMinimizer) Step() {
 
 // Free
 func (mini *VPOMinimizer) Free() {
-	mini.f_n.Free()
-	mini.f_np1.Free()
-	mini.v.Free()
+	// mini.f_n.Free()
+	// mini.f_np1.Free()
+	// mini.v.Free()
 }
 
 // The main part of this function: Based on engine/minimizer.go
@@ -371,8 +370,10 @@ func VPOMinimize() {
 
 	// set stepper to the VPOMinimizer
 	mini := VPOMinimizer{
-		f_n:        nil,
-		v:          nil,
+		f_n:        cuda.Buffer((&M).NComp(), (&M).buffer_.Size(), (&M).GetNImages()),
+		f_np1:      cuda.Buffer((&M).NComp(), (&M).buffer_.Size(), (&M).GetNImages()),
+		v:          cuda.Buffer((&M).NComp(), (&M).buffer_.Size(), (&M).GetNImages()),
+		vtilde:     cuda.Buffer((&M).NComp(), (&M).buffer_.Size(), (&M).GetNImages()),
 		lastDm:     FifoRingVPO(DmSamplesVPO),
 		lastF:      FifoRingVPO(FSamplesVPO),
 		iter:       0,
@@ -403,11 +404,14 @@ func VPOMinimize() {
 		return (((mini.lastDm.count < DmSamplesVPO) || (mini.lastDm.Max() > StopMaxDmVPO)) && mini.iter < MaxIterVPO)
 	}
 
+	SaveAs(&M, mini.OutputDir+"M_initial")
+	SnapshotAs(&M, OD()+mini.OutputDir+"M_initial.png")
 	RunWhile(cond)
 	if mini.iter == MaxIterVPO {
 		LogOut("Warning! Maximum iterations reached in VPO")
 	}
-	SaveAs(&M, mini.OutputDir+"M_minimized")
+	SaveAs(&M, mini.OutputDir+"M_final")
+	SnapshotAs(&M, mini.OutputDir+"M_final.png")
 	pause = true
 	for it_fname, _ := range mini.writer_map {
 		mini.writer_map[it_fname].Flush()
@@ -427,6 +431,10 @@ func VPOMinimize() {
 		cuda.Recycle(Lastvdotfrot)
 		Lastvdotfrot = nil
 	}
+	cuda.Recycle(mini.f_n)
+	cuda.Recycle(mini.f_np1)
+	cuda.Recycle(mini.v)
+	cuda.Recycle(mini.vtilde)
 
 	SetSolver(prevType)
 	FixDt = prevFixDt

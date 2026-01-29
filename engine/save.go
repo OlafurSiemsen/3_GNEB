@@ -96,6 +96,31 @@ func SaveAs(q Quantity, fname string, ind_image_variadic ...int) {
 
 }
 
+func SaveSliceAs(slice *data.Slice, fname string, ind_image_variadic ...int) {
+	if !strings.HasPrefix(fname, OD()) {
+		fname = OD() + fname // don't clean, turns http:// in http:/
+	}
+	images_specified := len(ind_image_variadic) != 0 // Checks if the user specified images to save
+	if slice.N_images == 1 {                         // Just the normal MuMax way
+		if path.Ext(fname) == "" {
+			fname += ("." + SuffixFromOutputFormat[outputFormat])
+		}
+		info := data.Meta{}
+		data := slice.HostCopy() // must be copy (async io)
+		queOutput(func() { saveAs_sync(fname, data, info, outputFormat) })
+	} else { // Save multiple images
+		for it_image := 0; it_image < slice.N_images; it_image++ { // ...iterate over the images...
+			if images_specified && !slices.Contains(ind_image_variadic, it_image) { // Skips images that weren't specified by user
+				continue
+			}
+			t_fname := insertImageIndex(fname, it_image)
+			info := data.Meta{}
+			t_data := slice.SubSlice(it_image).HostCopy() // must be copy (async io)
+			queOutput(func() { saveAs_sync(t_fname, t_data, info, outputFormat) })
+		}
+	}
+}
+
 // Save image once, with auto file name
 func Snapshot(q Quantity, ind_image_variadic ...int) {
 	qname := NameOf(q)

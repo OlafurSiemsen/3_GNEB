@@ -301,7 +301,7 @@ func CalculateGeodesicDistances(mag_variadic ...*magnetization) {
 	case 1:
 		mag = mag_variadic[0]
 	default:
-		panic("Please pass either 0 or 1 magnetization for tangent projection")
+		panic("Please pass either 0 or 1 magnetization for geodesic distance calculation")
 	}
 	if mag.Geodesic_distances_calc {
 		// Geodesic distances are already calculated
@@ -309,24 +309,15 @@ func CalculateGeodesicDistances(mag_variadic ...*magnetization) {
 	}
 	mag_slice := mag.buffer_
 	n_images := mag_slice.N_images
-	cross_prod_slice := cuda.Buffer(3, mag_slice.Size())
-	cross_prod_norm_slice := cuda.Buffer(1, mag_slice.Size())
-	dot_prod_slice := cuda.Buffer(1, mag_slice.Size())
-	tot_angle_slice := cuda.Buffer(1, mag_slice.Size())
-	for ind_img := 0; ind_img < n_images-1; ind_img++ {
-		img_n := mag_slice.SubSlice(ind_img)
-		img_np1 := mag_slice.SubSlice(ind_img + 1)
 
-		cuda.CrossProduct(cross_prod_slice, img_n, img_np1)
-		cuda.VecNorm(cross_prod_norm_slice, cross_prod_slice)
-		cuda.DotProduct(dot_prod_slice, 1, img_n, img_np1)
-		cuda.Atan2(tot_angle_slice, cross_prod_norm_slice, dot_prod_slice)
-		mag.Geodesic_distances[ind_img] = math.Sqrt(float64(cuda.ReduceSquareSum(tot_angle_slice)))
+	angle_slice := cuda.Buffer(1, mag_slice.Size(), n_images-1)
+	cuda.InterimageAngles(angle_slice, mag_slice, geometry.Gpu())
+	for ind_img := 0; ind_img < n_images-1; ind_img++ {
+		mag.Geodesic_distances[ind_img] = math.Sqrt(float64(cuda.ReduceSquareSum(angle_slice.SubSlice(ind_img))))
 	}
-	cuda.Recycle(cross_prod_slice)
-	cuda.Recycle(cross_prod_norm_slice)
-	cuda.Recycle(dot_prod_slice)
-	cuda.Recycle(tot_angle_slice)
+
+	cuda.Recycle(angle_slice)
+
 	mag.Geodesic_distances_calc = true
 }
 

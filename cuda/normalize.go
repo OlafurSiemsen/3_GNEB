@@ -6,6 +6,7 @@ import (
 )
 
 // Normalize vec to unit length, unless length or vol are zero.
+// see file://./normalize.cu
 func Normalize(vec, vol *data.Slice) {
 	n_images := vec.N_images
 	if n_images != 1 {

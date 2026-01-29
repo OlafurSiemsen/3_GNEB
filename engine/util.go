@@ -282,6 +282,9 @@ func PrintSlice(i_slice *data.Slice, preamble ...any) {
 // }
 
 func LogSlice(slice1 *data.Slice, log_mode bool, print_mode bool, preamble ...any) {
+	if log_mode == false && print_mode == false {
+		panic("That doesn't do anything.")
+	}
 	nComps := slice1.NComp()
 	gridsize := slice1.Size()
 	n_images := slice1.N_images
@@ -483,6 +486,7 @@ const (
 	VECTOR = 3
 )
 
+// TODO-olafur: Split this into a 'generic' and a 'column name' version
 func GenerateCSVHeader(var_names []string, var_num int, csv_system_info bool) string {
 	o_string := ""
 	o_string += fmt.Sprintln("# Gridsize=", Mesh().Size())
@@ -502,12 +506,33 @@ func GenerateCSVHeader(var_names []string, var_num int, csv_system_info bool) st
 	o_string = o_string + "iteration,"
 	n_digits := int(math.Ceil(math.Log10(float64(var_num))))
 	csv_header_format := fmt.Sprintf("%%v%%0%dd,", n_digits)
-	vname_slice := []string{"x", "y"}
-	for _, vname := range vname_slice {
-		for n := range var_num {
-			o_string = o_string + fmt.Sprintf(csv_header_format, vname, n)
+	if len(var_names) != 0 {
+		for _, vname := range var_names {
+			for n := range var_num {
+				o_string = o_string + fmt.Sprintf(csv_header_format, vname, n)
+			}
 		}
 	}
 	o_string = strings.TrimRight(o_string, ",") + "\n"
 	return o_string
 }
+
+// TODO-olafur: Rename
+func go_slice_to_csv_line(slice []float64) string {
+	o_string := fmt.Sprintf("%E", slice) + "\n"
+	o_string = strings.ReplaceAll(o_string, " ", ",")
+	o_string = strings.ReplaceAll(o_string, "[", "")
+	o_string = strings.ReplaceAll(o_string, "]", "")
+	return o_string
+}
+
+// func dump_slice_to_csv(slice *data.Slice, preamble ...any) {
+// 	t_slice := slice.Tensors()
+// 	for
+// 	var t_string string
+// 	if len(preamble) != 0 {
+// 		t_string = fmt.Sprint(preamble)
+// 	} else {
+// 		t_string = "\n"
+// 	}
+// }
