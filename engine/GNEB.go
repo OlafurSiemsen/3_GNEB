@@ -34,10 +34,6 @@ func New_GNEB_params(max_iter int, kappa []float32, n_images int) GNEB_params {
 	return o_params
 }
 
-func InterpolateMagnetization(min_index, max_index int) {
-	AngularInterpolation(M.buffer_, false, min_index, max_index)
-}
-
 // Takes a data.Slice with multiple images and overwrites the images between
 // two image indeces with linear interpolation. If no indeces are specified, the images
 // between the first and last are interpolated.
@@ -69,10 +65,16 @@ func Interpolation(dst *data.Slice, ind_image_variadic ...int) {
 	}
 }
 
+func InterpolateMagnetization(mag magnetization, normalize bool, ind_image_variadic ...int) {
+	AngularInterpolation(mag.buffer_, false, ind_image_variadic...)
+	M.Reset_calc_flags()
+}
+
 // Takes a data.Slice with multiple images and overwrites the images between
 // two image indeces with angular interpolation. If no indeces are specified, the images
 // between the first and last are interpolated. The vectors should be normalized,
 // and if the aren't the parameter normalize should be set to true.
+// TODO-olafur: Make this private in lieu of InterpolateMagnetizati0on
 func AngularInterpolation(dst *data.Slice, normalize bool, ind_image_variadic ...int) {
 	num_images_specified := len(ind_image_variadic)
 	var min_index, max_index int
@@ -309,13 +311,12 @@ func CalculateGeodesicDistances(mag_variadic ...*magnetization) {
 	}
 	mag_slice := mag.buffer_
 	n_images := mag_slice.N_images
-
 	angle_slice := cuda.Buffer(1, mag_slice.Size(), n_images-1)
 	cuda.InterimageAngles(angle_slice, mag_slice, geometry.Gpu())
+
 	for ind_img := 0; ind_img < n_images-1; ind_img++ {
 		mag.Geodesic_distances[ind_img] = math.Sqrt(float64(cuda.ReduceSquareSum(angle_slice.SubSlice(ind_img))))
 	}
-
 	cuda.Recycle(angle_slice)
 
 	mag.Geodesic_distances_calc = true

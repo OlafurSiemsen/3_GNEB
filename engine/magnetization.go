@@ -57,7 +57,7 @@ func (m *magnetization) alloc() {
 		m.tangent_buffer_ = cuda.NewSlice(3, m.Mesh().Size(), n_images)
 		m.Geodesic_distances = make([]float64, n_images-1)
 	}
-	m.reset_calc_flags()
+	m.Reset_calc_flags()
 	m.Set(RandomMag()) // sane starting config
 }
 
@@ -72,7 +72,7 @@ func (m *magnetization) GetNImages() int {
 
 // Resets the quantities to do with the path, this should be invoked whenever
 // the magnetization is changed
-func (m *magnetization) reset_calc_flags() {
+func (m *magnetization) Reset_calc_flags() {
 	m.E_img_calc = false
 	m.E_derivative_calc = false
 	m.tangent_calc = false
@@ -111,7 +111,7 @@ func (b *magnetization) SetArray(src *data.Slice, ind_image_variadic ...int) {
 		data.Copy(b.Buffer().SubSlice(ind_image), src)
 	}
 	b.normalize()
-	b.reset_calc_flags()
+	b.Reset_calc_flags()
 }
 
 func (m *magnetization) Set(c Config) {
@@ -239,7 +239,6 @@ func (m *magnetization) SetRegion(region int, conf Config, ind_image_variadic ..
 	host := m.Buffer().HostCopy()
 	n := m.Mesh().Size()
 	r := byte(region)
-	// ind_image_variadic := []int{} // TODO-olafur: remove diagnostic overrride
 	regionsArr := Universe_regions.HostArray()
 	images_specified := len(ind_image_variadic) != 0 // Checks if the user specified images to save
 	stored_host_ptr := host                          // We store a pointer to the original magnetization...

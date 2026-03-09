@@ -19,6 +19,8 @@
 		1. Automated confirmation that the angle (dot product) between the vectors
 		in adjacent images is identical.
 	TODO-olafur: Check that the output to terminal is correctly formatted
+	TODO-olafur: Rewrite this to use the public function InterpolateMagnetization
+	TODO-olafur: Make AngularInterpolation private
 */
 
 package main
