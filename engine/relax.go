@@ -104,6 +104,57 @@ func Relax() {
 	pause = true
 }
 
+// Relaxes until the energy drops to ratio times the starting energy
+// todo-olafur: Rework/remove
+func RelaxRatio(ratio float64) {
+	if M.GetNImages() != 1 {
+		panic("Relax does not support multiple images yet")
+	}
+	if ratio <= 0 || 1 <= ratio {
+		panic("Ratio must be on interval ]0,1[")
+	}
+	SanityCheck()
+	pause = false
+
+	// Save the settings we are changing...
+	prevType := solvertype
+	prevErr := MaxErr
+	prevFixDt := FixDt
+	prevPrecess := Precess
+
+	// ...to restore them later
+	defer func() {
+		SetSolver(prevType)
+		MaxErr = prevErr
+		FixDt = prevFixDt
+		Precess = prevPrecess
+		relaxing = false
+		//	Temp.upd_reg = prevTemp
+		//	Temp.invalidate()
+		//	Temp.update()
+	}()
+
+	// Set good solver for relax
+	SetSolver(BOGAKISHAMPINE)
+	FixDt = 0
+	Precess = false
+	relaxing = true
+
+	// Minimize energy: take steps as long as energy goes down.
+	// This stops when energy reaches the numerical noise floor.
+	const N = 3 // evaluate energy (expensive) every N steps
+	E_init := GetTotalEnergy()
+	relaxSteps(N)
+	relaxSteps(N)
+	E_current := GetTotalEnergy()
+	for E_current/E_init < ratio && !pause {
+		relaxSteps(N)
+		E_current = GetTotalEnergy()
+	}
+
+	pause = true
+}
+
 // take n steps without setting pause when done or advancing time
 func relaxSteps(n int) {
 	t0 := Time

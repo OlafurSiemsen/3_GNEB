@@ -106,8 +106,8 @@ func cleanMagnetization(geomSlice *data.Slice) {
 
 	stored_mhost_ptr := mhost // We store a pointer to the original magnetization...
 	n_images := M.GetNImages()
-	for it_image := 0; it_image < n_images; it_image++ {
-		m = stored_mhost_ptr.SubSlice(it_image).Host()
+	for ind_image := 0; ind_image < n_images; ind_image++ {
+		m = stored_mhost_ptr.SubSlice(ind_image).Host()
 		for i := range nCells {
 			if geomlist[i] != 0 {
 				mx, my, mz := m[X][i], m[Y][i], m[Z][i]
