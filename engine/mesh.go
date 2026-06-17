@@ -84,9 +84,9 @@ func SetMesh(Nx, Ny, Nz int, cellSizeX, cellSizeY, cellSizeZ float64, pbcx, pbcy
 		if sizeChanged || cellSizeChanged {
 			M.resize()
 			Universe_regions.resize()
-			geometry.buffer.Free()
-			geometry.buffer = data.NilSlice(1, Mesh().Size())
-			geometry.setGeom(geometry.shape)
+			Universe_geometry.buffer.Free()
+			Universe_geometry.buffer = data.NilSlice(1, Mesh().Size())
+			Universe_geometry.setGeom(Universe_geometry.shape)
 
 			// remove excitation extra terms if they don't fit anymore
 			// up to the user to add them again

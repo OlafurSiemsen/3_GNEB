@@ -39,7 +39,7 @@ func Shift(dx int) {
 		Universe_regions.shift(dx)
 	}
 	if ShiftGeom {
-		geometry.shift(dx)
+		Universe_geometry.shift(dx)
 	}
 	M.normalize()
 }
@@ -68,7 +68,7 @@ func YShift(dy int) {
 		Universe_regions.shiftY(dy)
 	}
 	if ShiftGeom {
-		geometry.shiftY(dy)
+		Universe_geometry.shiftY(dy)
 	}
 	M.normalize()
 }

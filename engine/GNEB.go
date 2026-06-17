@@ -227,7 +227,7 @@ func CalculateTangents(mag_variadic ...*magnetization) {
 			// backwards difference
 			imageSub(tangent_slice.SubSlice(ind_img), mag_slice, ind_img, ind_img-1)
 		default:
-			epsilon := float32(1e-36)
+			epsilon := float32(1e-32)
 			delta_E := []float64{math.Abs(E_np1 - E_n), math.Abs(E_n - E_nm1)}
 			max_delta_E := float32(slices.Max(delta_E))
 			min_delta_E := float32(slices.Min(delta_E))
@@ -239,16 +239,15 @@ func CalculateTangents(mag_variadic ...*magnetization) {
 			if max_delta_E < epsilon {
 				// fwd diff + bkwd diff
 				cuda.Madd2(tangent_slice.SubSlice(ind_img), fwd_diff_slice, bkwd_diff_slice, 1, 1)
+				continue
 			}
 			switch {
-			case E_np1 > E_nm1:
+			case E_nm1 < E_np1:
 				// fwd diff * dE_max + bkwd diff * dE_min
-				recip_max_delta_E := 1 / max_delta_E
-				cuda.Madd2(tangent_slice.SubSlice(ind_img), fwd_diff_slice, bkwd_diff_slice, 1, min_delta_E*recip_max_delta_E)
-			case E_np1 < E_nm1:
+				cuda.Madd2(tangent_slice.SubSlice(ind_img), fwd_diff_slice, bkwd_diff_slice, 1, min_delta_E/max_delta_E)
+			case E_nm1 > E_np1:
 				// fwd diff * dE_min + bkwd diff * dE_max
-				recip_max_delta_E := 1 / max_delta_E
-				cuda.Madd2(tangent_slice.SubSlice(ind_img), fwd_diff_slice, bkwd_diff_slice, min_delta_E*recip_max_delta_E, 1)
+				cuda.Madd2(tangent_slice.SubSlice(ind_img), fwd_diff_slice, bkwd_diff_slice, min_delta_E/max_delta_E, 1)
 			default:
 				// fwd diff + bkwd diff
 				cuda.Madd2(tangent_slice.SubSlice(ind_img), fwd_diff_slice, bkwd_diff_slice, 1, 1)
@@ -312,7 +311,7 @@ func CalculateGeodesicDistances(mag_variadic ...*magnetization) {
 	mag_slice := mag.buffer_
 	n_images := mag_slice.N_images
 	angle_slice := cuda.Buffer(1, mag_slice.Size(), n_images-1)
-	cuda.InterimageAngles(angle_slice, mag_slice, geometry.Gpu())
+	cuda.InterimageAngles(angle_slice, mag_slice, Universe_geometry.Gpu())
 
 	for ind_img := 0; ind_img < n_images-1; ind_img++ {
 		mag.Geodesic_distances[ind_img] = math.Sqrt(float64(cuda.ReduceSquareSum(angle_slice.SubSlice(ind_img))))
@@ -396,8 +395,10 @@ func GNEBForceTransformation(B_eff *data.Slice, kappa []float32, mag_variadic ..
 	// LogSlice(energy_gradient, "(B_eff⟂m)⟂τ", NSteps)
 	// Generate elastic forces
 	elastic_force_slice := cuda.Buffer(3, mag_slice.Size(), n_images)
+	cuda.Zero(elastic_force_slice) // TODO-olafur: paranoia?
 	CalculateGeodesicElasticForces(elastic_force_slice, kappa, mag)
-	// LogSlice(elastic_force_slice, "F_s", NSteps)
+	cuda.Mask(elastic_force_slice, Universe_geometry.Gpu())
+
 	for ind_img := 1; ind_img < n_images-1; ind_img++ {
 		if ClimbingImage == true && ind_img == *mag.climbing_image_index {
 			continue
@@ -525,6 +526,7 @@ func Interpolate_energy_path(mag *magnetization, cell_volume float64, M_sat floa
 	grad_slice := cuda.Buffer(3, size, n_images)
 	defer cuda.Recycle(grad_slice)
 	SetEffectiveField(grad_slice, mag)
+	cuda.Mask(grad_slice, Universe_geometry.Gpu())
 	CalculateGeodesicDistances(&M)
 	gradDOTtau := make([]float64, n_images)
 	for ind_img := 0; ind_img < n_images; ind_img++ {

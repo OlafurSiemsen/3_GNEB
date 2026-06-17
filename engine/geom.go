@@ -14,12 +14,12 @@ func init() {
 	DeclFunc("SetGeom", SetGeom, "Sets the geometry to a given shape")
 	DeclFunc("ext_InitGeomFromOVF", InitGeomFromOVF, "Initialize geometry, cell count and cell size given a pattern from OVF")
 	DeclVar("EdgeSmooth", &edgeSmooth, "Geometry edge smoothing with edgeSmooth^3 samples per cell, 0=staircase, ~8=very smooth")
-	geometry.init()
+	Universe_geometry.init()
 }
 
 var (
-	geometry   geom
-	edgeSmooth int = 0 // disabled by default
+	Universe_geometry geom
+	edgeSmooth        int = 0 // disabled by default
 )
 
 type geom struct {
@@ -35,10 +35,10 @@ func (g *geom) init() {
 }
 
 func spaceFill() float64 {
-	if geometry.Gpu().IsNil() {
+	if Universe_geometry.Gpu().IsNil() {
 		return 1
 	} else {
-		return float64(cuda.Sum(geometry.buffer)) / float64(geometry.Mesh().NCell())
+		return float64(cuda.Sum(Universe_geometry.buffer)) / float64(Universe_geometry.Mesh().NCell())
 	}
 }
 
@@ -62,7 +62,7 @@ func (g *geom) Slice() (*data.Slice, bool) {
 
 func (q *geom) EvalTo(dst *data.Slice) { EvalTo(q, dst) }
 
-var _ Quantity = &geometry
+var _ Quantity = &Universe_geometry
 
 func (g *geom) average() []float64 {
 	s, r := g.Slice()
@@ -75,7 +75,7 @@ func (g *geom) average() []float64 {
 func (g *geom) Average() float64 { return g.average()[0] }
 
 func SetGeom(s Shape) {
-	geometry.setGeom(s)
+	Universe_geometry.setGeom(s)
 }
 
 func isNonEmpty(geomSlice *data.Slice) bool {
@@ -150,17 +150,17 @@ func InitGeomFromOVF(fname string) {
 	SetBusy(true)
 	defer SetBusy(false)
 	//first time initialization if needed
-	if geometry.Gpu().IsNil() {
-		geometry.buffer = cuda.NewSlice(1, geomSlice.Size())
+	if Universe_geometry.Gpu().IsNil() {
+		Universe_geometry.buffer = cuda.NewSlice(1, geomSlice.Size())
 	}
 
 	//copy data into geometry array
-	data.Copy(geometry.buffer, geomSlice)
+	data.Copy(Universe_geometry.buffer, geomSlice)
 
 	//make a makeshift function to represent imported geometry
 	isInterpd := false
 	pred := VoxelShape(geomSlice, step[0], step[1], step[2])
-	geometry.shape = func(x, y, z float64) bool {
+	Universe_geometry.shape = func(x, y, z float64) bool {
 		if !isInterpd {
 			util.Log("Warning! Geometry imported through ext_InitGeomFromOVF is about to be reinterpolated! Possible changes in geometry!")
 			isInterpd = true
@@ -257,9 +257,9 @@ func (g *geom) cellVolume(ix, iy, iz int) float32 {
 	r := Index2Coord(ix, iy, iz)
 	x0, y0, z0 := r[X], r[Y], r[Z]
 
-	c := geometry.Mesh().CellSize()
+	c := Universe_geometry.Mesh().CellSize()
 	cx, cy, cz := c[X], c[Y], c[Z]
-	s := geometry.shape
+	s := Universe_geometry.shape
 	var vol float32
 
 	N := edgeSmooth
@@ -360,3 +360,5 @@ func shiftDirtyRange(dx int) (x1, x2 int) {
 }
 
 func (g *geom) Mesh() *data.Mesh { return Mesh() }
+
+func SetEdgeSmooth(i int) { edgeSmooth = i }

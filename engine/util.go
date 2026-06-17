@@ -506,10 +506,15 @@ func GenerateCSVHeader(var_names []string, var_num int, csv_system_info bool) st
 	o_string = o_string + "iteration,"
 	n_digits := int(math.Ceil(math.Log10(float64(var_num))))
 	csv_header_format := fmt.Sprintf("%%v%%0%dd,", n_digits)
+
 	if len(var_names) != 0 {
 		for _, vname := range var_names {
-			for n := range var_num {
-				o_string = o_string + fmt.Sprintf(csv_header_format, vname, n)
+			if var_num != 0 {
+				for n := range var_num {
+					o_string = o_string + fmt.Sprintf(csv_header_format, vname, n)
+				}
+			} else {
+				o_string = o_string + fmt.Sprintf("%v, ", vname)
 			}
 		}
 	}

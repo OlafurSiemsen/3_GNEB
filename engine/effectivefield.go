@@ -18,17 +18,17 @@ func Curried_SetEffectiveField(mag *magnetization) func(dst *data.Slice) {
 func SetEffectiveField(dst *data.Slice, mag *magnetization) {
 	if dst.N_images > 1 {
 		n_images := dst.N_images
-		stored_magnetization := M                         // We store a pointer to the original magnetization...
+		stored_magnetization := mag.buffer_               // We store a pointer to the original magnetization...
 		for ind_img := 0; ind_img < n_images; ind_img++ { // ...iterate over the images...
 			// Skips first and last images when FixEndImages is true
 			if FixEndImages && (ind_img == 0 || ind_img == n_images-1) {
 				continue
 			}
-			M.buffer_ = stored_magnetization.buffer_.SubSlice(ind_img)
+			mag.buffer_ = stored_magnetization.SubSlice(ind_img)
 			// M.buffer_ = stored_magnetization_ptr.SubSlice(ind_img) // ...one at a time...
 			SetEffectiveField(dst.SubSlice(ind_img), mag)
 		}
-		M = stored_magnetization //...and then restore the original magnetization pointer
+		mag.buffer_ = stored_magnetization //...and then restore the original magnetization pointer
 		return
 	}
 	SetDemagField(dst, mag)     // set to B_demag...

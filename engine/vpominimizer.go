@@ -20,9 +20,9 @@ import (
 // TODO: explain what they are.
 // TODO: Check if they are actually good.
 var (
-	massVPO     = 1e-0 // TODO: massVPO of the ??? What units? What is reasonable here?
-	recip2mVPO  = 0.5 / massVPO
-	stepsizeVPO = 0.05 // dt effective time step
+	VPO_mass     = 1e-1 // TODO: massVPO of the ??? What units? What is reasonable here?
+	recip2mVPO   = 0.5 / VPO_mass
+	VPO_stepsize = 0.01 // dt effective time step
 	//MaxForce          = 100.0	// TODO: maximal allowed force???
 	DmSamplesVPO      int       = 10             // number of dm to keep for convergence check
 	StopMaxDmVPO      float64   = 1e-6           // stop minimizer if sampled dm is smaller than this
@@ -33,7 +33,7 @@ var (
 	FixEndImages      bool      = true           // True if the first and last images are not to be modified
 	ClimbingImage     bool      = true           // True if one image is to climb towards a saddle point
 	AdvanceTime       bool      = false          // Whether to increment time globally - time is reset at the end
-	GNEB_kappa        []float32 = []float32{2.0} // Spring constants for the inter-image elastic forces
+	GNEB_kappa        []float32 = []float32{1.0} // Spring constants for the inter-image elastic forces
 	NPointsEnergyCHIP int       = 0
 
 	//Diagnostic outputs, TODO:Remove, or at least disable for performance
@@ -58,8 +58,8 @@ var (
 // Initialization of the function. Can override variables.
 func init() {
 	DeclFunc("VPOMinimize", VPOMinimize, "Use gradient velocity projection optimization to zero the forces (or energy gradients)")
-	DeclVar("massVPO", &massVPO, "Mass used in the VPO minimizer")
-	DeclVar("stepsizeVPO", &stepsizeVPO, "stepsizeVPO used in the VPO minimizer")
+	DeclVar("massVPO", &VPO_mass, "Mass used in the VPO minimizer")
+	DeclVar("stepsizeVPO", &VPO_stepsize, "stepsizeVPO used in the VPO minimizer")
 	//DeclVar("MaxForce", &MaxForce, "MaxForce")
 	DeclVar("VPOMinimizerStop", &StopMaxDmVPO, "Stopping max dM for VPOMinimize")
 	DeclVar("VPOMinimizerSamples", &DmSamplesVPO, "Number of max dM to collect for VPOMinimize convergence check.")
@@ -101,6 +101,8 @@ type VPOMinimizer struct {
 	f_np1       *data.Slice // force n+1
 	v           *data.Slice // velocity
 	vtilde      *data.Slice // Modified velocity, vtilde = v + f_n * recip2mVPO*stepsizeVPO
+	mass        float64
+	recip2mass  float64
 	lastDm      fifoRingVPO
 	lastF       fifoRingVPO
 	iter        int // current number of iterations
@@ -113,6 +115,7 @@ type VPOMinimizer struct {
 // VPOMinimizer step
 func (mini *VPOMinimizer) Step() {
 
+	var csv_lines string
 	mag_slice := M.Buffer()
 	size := mag_slice.Size()
 	n_images := mag_slice.N_images
@@ -123,6 +126,7 @@ func (mini *VPOMinimizer) Step() {
 		// Update and increment index on force
 		SetEffectiveField(mini.f_n, &M)                   // f_n arbitrary
 		cuda.Orthogonalize(mini.f_n, mini.f_n, mag_slice) // f_n ⟂ m_n
+		cuda.Mask(mini.f_n, Universe_geometry.Gpu())
 
 		if n_images > 1 && MinimizePath {
 			GNEBForceTransformation(mini.f_n, GNEB_kappa, &M)
@@ -134,12 +138,11 @@ func (mini *VPOMinimizer) Step() {
 		// mini.v = cuda.Buffer(3, size, n_images)
 		cuda.Zero3(mini.v)
 	}
-	// TODO-olafur: Rework, preferrably should use the side standard side process async output
-	if mini.iter%1000 == 0 {
+	// TODO-olafur: Rework, preferrably should use the standard side process async output
+	if mini.iter%1000 == 0 && M.n_images != 1 {
 		CalculateTangents(&M)
 		ProjectTangents(&M)
 		CalculateTotalImageEnergies(&M)
-		// SetEffectiveField(diag_vector_slice, &M)
 		gradDOTtau := make([]float64, n_images)
 		for ind_img := 0; ind_img < n_images; ind_img++ {
 			gradDOTtau[ind_img] = cellVolume() * Msat.Average() * (-float64(cuda.Dot(mini.f_n.SubSlice(ind_img), M.tangent_buffer_.SubSlice(ind_img))))
@@ -148,7 +151,7 @@ func (mini *VPOMinimizer) Step() {
 		t_xs, t_ys, t_chip := Interpolate_energy_path(&M, cellVolume(), Msat.Average(), NPointsEnergyCHIP)
 		mini.energy_chip = t_chip
 		// Janky output
-		csv_lines := fmt.Sprintf("%v,", mini.iter) + go_slice_to_csv_line(append(t_xs, t_ys...))
+		csv_lines = fmt.Sprintf("%v,", mini.iter) + go_slice_to_csv_line(append(t_xs, t_ys...))
 		csv_lines = strings.ReplaceAll(csv_lines, " ", ",")
 		csv_lines = strings.ReplaceAll(csv_lines, "[", "")
 		csv_lines = strings.ReplaceAll(csv_lines, "]", "")
@@ -158,15 +161,31 @@ func (mini *VPOMinimizer) Step() {
 		SnapshotAs(&M, OD()+mini.OutputDir+fmt.Sprintf("mag_iter%06d.png", mini.iter))
 	}
 
-	maxF := cuda.MaxVecNorm(mini.f_n)
-	mini.lastF.Add(maxF)
+	force_perp_max := cuda.MaxVecNorm(mini.f_n)
+
+	mini.lastF.Add(force_perp_max)
 	SetBeffperp(mini.f_n)
-	SetMaxVPOForce(maxF)
+	SetMaxVPOForce(force_perp_max)
 	SetVPOVelocity(mini.v)
-	SetVPOVelocityNorm(float64(cuda.Dot(mini.v, mini.v)))
+	velocity_norm := math.Sqrt(float64(cuda.Dot(mini.v, mini.v)))
+	SetVPOVelocityNorm(velocity_norm)
 
-	SetVPOForceNorm(math.Sqrt(float64(cuda.Dot(mini.f_n, mini.f_n))))
+	force_perp_norm := math.Sqrt(float64(cuda.Dot(mini.f_n, mini.f_n)))
+	SetVPOForceNorm(force_perp_norm)
 
+	// TODO-olafur: Rework, preferrably should use the standard side process async output
+	if mini.iter%1000 == 0 {
+		diag_vector_slice := cuda.Buffer(3, mag_slice.Size(), mag_slice.N_images)
+		csv_lines = fmt.Sprintf("%v,", mini.iter)
+		csv_lines += fmt.Sprintf("%E, ", velocity_norm)
+		SetEffectiveField(diag_vector_slice, &M)
+		cuda.Mask(diag_vector_slice, Universe_geometry.Gpu())
+		csv_lines += fmt.Sprintf("%E, ", math.Sqrt(float64(cuda.Dot(diag_vector_slice, diag_vector_slice))))
+		csv_lines += fmt.Sprintf("%E, ", cuda.MaxVecNorm(diag_vector_slice))
+		csv_lines += fmt.Sprintf("%E, ", force_perp_norm)
+		csv_lines += fmt.Sprintf("%E, ", force_perp_max)
+		cuda.Recycle(diag_vector_slice)
+	}
 	// Convergence check
 	// Store a copy of the magnetization for comparison and convergence check
 	// TODO: Possibly remove to save on memory, since we want to use VPO force instead
@@ -176,8 +195,40 @@ func (mini *VPOMinimizer) Step() {
 
 	// Update m_n to m_{n+1}
 	// vtilde := cuda.Buffer(3, size, n_images)
-	cuda.Madd2(mini.vtilde, mini.v, mini.f_n, 1, float32(recip2mVPO*stepsizeVPO))
-	cuda.RotateVectors(mag_slice, mini.vtilde, float32(stepsizeVPO))
+	cuda.Madd2(mini.vtilde, mini.v, mini.f_n, 1, float32(mini.recip2mass*VPO_stepsize))
+
+	// TODO-olafur: remove
+	// if mini.iter == 100000 || mini.iter == 50000 {
+	// 	diag_vector_slice := cuda.Buffer(3, mag_slice.Size(), mag_slice.N_images)
+	// 	diag_scalar_slice := cuda.Buffer(1, mag_slice.Size(), mag_slice.N_images)
+	// 	cuda.VecNorm(diag_scalar_slice, mini.vtilde)
+	// 	cuda.Scale(diag_scalar_slice, diag_scalar_slice, float32(VPO_stepsize))
+	// 	SaveSliceAs(diag_scalar_slice, OD()+mini.OutputDir+fmt.Sprintf("vtilde_norm_dt_iter%06d", mini.iter))
+	// 	SaveSliceAs(mini.v, OD()+mini.OutputDir+fmt.Sprintf("v_norm_iter%06d", mini.iter))
+	// 	SaveSliceAs(mag_slice, OD()+mini.OutputDir+fmt.Sprintf("mag_iter%06d", mini.iter))
+
+	// 	cuda.VecNorm(diag_scalar_slice, mini.vtilde)
+	// 	cuda.Scale(diag_scalar_slice, diag_scalar_slice, float32(VPO_stepsize))
+	// 	cuda.Sin(diag_scalar_slice, diag_scalar_slice)
+	// 	SaveSliceAs(diag_scalar_slice, OD()+mini.OutputDir+fmt.Sprintf("vtilde_norm_dt_sin_iter%06d", mini.iter))
+
+	// 	cuda.VecNorm(diag_scalar_slice, mini.vtilde)
+	// 	cuda.Scale(diag_scalar_slice, diag_scalar_slice, float32(VPO_stepsize))
+	// 	cuda.Cos(diag_scalar_slice, diag_scalar_slice)
+	// 	SaveSliceAs(diag_scalar_slice, OD()+mini.OutputDir+fmt.Sprintf("vtilde_norm_dt_cos_iter%06d", mini.iter))
+
+	// 	SetEffectiveField(diag_vector_slice, &M)
+	// 	SaveSliceAs(diag_vector_slice, OD()+mini.OutputDir+fmt.Sprintf("B_eff_iter%06d", mini.iter))
+	// 	cuda.Orthogonalize(diag_vector_slice, diag_vector_slice, mag_slice) // f_n ⟂ m_n
+	// 	SaveSliceAs(diag_vector_slice, OD()+mini.OutputDir+fmt.Sprintf("B_eff_perp_iter%06d", mini.iter))
+	// 	cuda.Mask(diag_vector_slice, Universe_geometry.Gpu())
+	// 	SaveSliceAs(diag_vector_slice, OD()+mini.OutputDir+fmt.Sprintf("B_eff_perp_masked_iter%06d", mini.iter))
+
+	// 	cuda.Recycle(diag_vector_slice)
+	// 	cuda.Recycle(diag_scalar_slice)
+	// }
+
+	cuda.RotateVectors(mag_slice, mini.vtilde, float32(VPO_stepsize))
 	// Since the magnetization of each image is changed, the quantities related to
 	// the path need to be recalculated
 	M.Reset_calc_flags()
@@ -192,12 +243,13 @@ func (mini *VPOMinimizer) Step() {
 	// mini.f_np1 = cuda.Buffer(3, size, n_images)
 	SetEffectiveField(mini.f_np1, &M)
 	cuda.Orthogonalize(mini.f_np1, mini.f_np1, mag_slice) // f_n+1 ⟂ m_n+1
+	cuda.Mask(mini.f_np1, Universe_geometry.Gpu())
 
 	if n_images > 1 && MinimizePath {
 		GNEBForceTransformation(mini.f_np1, GNEB_kappa, &M)
 	}
 
-	fac := float32(stepsizeVPO * recip2mVPO)
+	fac := float32(VPO_stepsize * mini.recip2mass)
 	cuda.Madd3(mini.v, mini.v, mini.f_n, mini.f_np1, 1, fac, fac)
 
 	// Factor for projection of velocity on force,
@@ -206,15 +258,14 @@ func (mini *VPOMinimizer) Step() {
 	SetVdotF(float64(vDOTf))
 	if vDOTf <= 0.0 {
 		cuda.Zero(mini.v)
+		fmt.Println(mini.iter, ": Overshot! Breaking!")
 	} else {
 		cuda.Scale(mini.v, mini.f_np1, vDOTf/cuda.Dot(mini.f_np1, mini.f_np1))
 	}
 	data.Copy(mini.f_n, mini.f_np1)
 	// cuda.Orthogonalize(mini.v, mini.v, mag_slice) //check if necessary
-	// Diagnostic block TODO: remove
 
 	// End of this iteration step
-	mini.iter++
 
 	cuda.Madd2(m_n, mag_slice, m_n, 1., -1.)
 	max_dm := cuda.MaxVecNorm(m_n)
@@ -223,6 +274,20 @@ func (mini *VPOMinimizer) Step() {
 	SetMaxDm(max_dm)
 	setLastErr(err) // report maxDm to user as LastErr
 
+	if mini.iter%1000 == 0 {
+		csv_lines += fmt.Sprintf("%E, ", vDOTf)
+		csv_lines += fmt.Sprintf("%E\n", max_dm)
+		mini.writer_map["VPO_analytics.csv"].WriteString(csv_lines)
+	}
+	// TODO-olafur: remove
+	// if mini.iter == 100000 || mini.iter == 1000 {
+	// 	diag_scalar_slice := cuda.Buffer(1, mag_slice.Size(), mag_slice.N_images)
+	// 	cuda.VecNorm(diag_scalar_slice, m_n)
+	// 	SaveSliceAs(diag_scalar_slice, OD()+mini.OutputDir+fmt.Sprintf("m_diff_iter%06d", mini.iter))
+	// 	cuda.Recycle(diag_scalar_slice)
+	// }
+
+	mini.iter++
 	if AdvanceTime {
 		Time += Dt_si
 	}
@@ -271,17 +336,21 @@ func VPOMinimize() {
 		f_np1:      cuda.Buffer((&M).NComp(), (&M).buffer_.Size(), (&M).GetNImages()),
 		v:          cuda.Buffer((&M).NComp(), (&M).buffer_.Size(), (&M).GetNImages()),
 		vtilde:     cuda.Buffer((&M).NComp(), (&M).buffer_.Size(), (&M).GetNImages()),
+		mass:       VPO_mass,
 		lastDm:     FifoRingVPO(DmSamplesVPO),
 		lastF:      FifoRingVPO(FSamplesVPO),
 		iter:       0,
 		file_map:   make(map[string]*os.File, 0),
 		writer_map: make(map[string]*bufio.Writer, 0)}
-	fname_slice := []string{"EnergyPathCHIP.csv"}
+	mini.recip2mass = 1 / (2 * mini.mass)
+	fname_slice := []string{"EnergyPathCHIP.csv", "VPO_analytics.csv"}
 	t_time := time.Now()
 	mini.OutputDir = fmt.Sprintf("VPO%02v%02v%02v.out/", t_time.Hour(), t_time.Minute(), t_time.Second())
+
+	// TODO-olafur: Abstract and funcitonalize
+	// TODO-olafur: Do something about the case of n_images=1 for the energypathchip
+	err := os.Mkdir(OD()+mini.OutputDir, 0755)
 	for _, it_fname := range fname_slice {
-		// TODO-olafur: Abstract and funcitonalize
-		err := os.Mkdir(OD()+mini.OutputDir, 0755)
 		util.FatalErr(err)
 		t_file, err := os.Create(OD() + mini.OutputDir + it_fname)
 		util.FatalErr(err)
@@ -291,13 +360,21 @@ func VPOMinimize() {
 	}
 	EnergyPathCHIP_header := GenerateCSVHeader([]string{"x", "y"}, NPointsEnergyCHIP, true)
 	mini.writer_map["EnergyPathCHIP.csv"].WriteString(EnergyPathCHIP_header)
+	VPO_Analytics_Header := GenerateCSVHeader(
+		[]string{"velocity_norm",
+			"force_norm", "force_max",
+			"force_GNEB_norm", "force_GNEB_max",
+			"v_dot_f",
+			"dM_max",
+		}, 0, false)
+	mini.writer_map["VPO_analytics.csv"].WriteString(VPO_Analytics_Header)
 	stepper = &mini
 	FixDt = 1
 
 	// TODO-olafur: Reconsider which break condition to use
 	// break condition: change of magnetization is below a reasonable threshold
 	cond := func() bool {
-		// return (((mini.lastDm.count < DmSamplesVPO) || (mini.lastF.Max() > StopMaxFVPO)) && NSteps < MaxIterVPO)
+		// return (((mini.lastDm.count < DmSamplesVPO) || (mini.lastF.Max() > StopMaxFVPO)) && mini.iter < MaxIterVPO)
 		return (((mini.lastDm.count < DmSamplesVPO) || (mini.lastDm.Max() > StopMaxDmVPO)) && mini.iter < MaxIterVPO)
 	}
 
@@ -306,6 +383,24 @@ func VPOMinimize() {
 	RunWhile(cond)
 	if mini.iter == MaxIterVPO {
 		LogOut("Warning! Maximum iterations reached in VPO")
+	}
+	{
+		CalculateTangents(&M)
+		ProjectTangents(&M)
+		CalculateTotalImageEnergies(&M)
+		gradDOTtau := make([]float64, M.n_images)
+		for ind_img := 0; ind_img < M.n_images; ind_img++ {
+			gradDOTtau[ind_img] = cellVolume() * Msat.Average() * (-float64(cuda.Dot(mini.f_n.SubSlice(ind_img), M.tangent_buffer_.SubSlice(ind_img))))
+		}
+
+		t_xs, t_ys, t_chip := Interpolate_energy_path(&M, cellVolume(), Msat.Average(), NPointsEnergyCHIP)
+		mini.energy_chip = t_chip
+		// Janky output
+		csv_lines := fmt.Sprintf("%v,", mini.iter) + go_slice_to_csv_line(append(t_xs, t_ys...))
+		csv_lines = strings.ReplaceAll(csv_lines, " ", ",")
+		csv_lines = strings.ReplaceAll(csv_lines, "[", "")
+		csv_lines = strings.ReplaceAll(csv_lines, "]", "")
+		mini.writer_map["EnergyPathCHIP.csv"].WriteString(csv_lines)
 	}
 	SaveAs(&M, mini.OutputDir+"M_final")
 	SnapshotAs(&M, mini.OutputDir+"M_final.png")

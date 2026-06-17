@@ -47,7 +47,7 @@ func (m *magnetization) Type() reflect.Type      { return reflect.TypeOf(new(mag
 func (m *magnetization) Eval() interface{}       { return m }
 func (m *magnetization) average() []float64      { return sAverageMagnet(M.Buffer()) }
 func (m *magnetization) Average() data.Vector    { return unslice(m.average()) }
-func (m *magnetization) normalize()              { cuda.Normalize(m.Buffer(), geometry.Gpu()) }
+func (m *magnetization) normalize()              { cuda.Normalize(m.Buffer(), Universe_geometry.Gpu()) }
 
 // allocate storage (not done by init, as mesh size may not yet be known then)
 func (m *magnetization) alloc() {
@@ -100,6 +100,7 @@ func (i_magnetization *magnetization) SubMagnetization(ind_image int) *magnetiza
 	return &o_magnetization
 }
 
+// TODO-olafur: Add guard clause to check number of passed images
 func (b *magnetization) SetArray(src *data.Slice, ind_image_variadic ...int) {
 	ind_image := data.ImageIndex(ind_image_variadic)
 	if src.Size() != b.Mesh().Size() {
@@ -123,9 +124,16 @@ func (m *magnetization) LoadFile(fname string, ind_image_variadic ...int) {
 	n_images := m.GetNImages()
 	if n_images == 1 { // Just the normal MuMax way
 		m.SetArray(LoadFile(fname))
-	} else { // Load to a specific image
+	} else {
+		stored_magnetization := m.buffer_ // We store a pointer to the original magnetization...
 		ind_image := data.ImageIndex(ind_image_variadic)
-		data.Copy(m.buffer_.SubSlice(ind_image), LoadFile(fname)) // Is this slow?
+		m.buffer_ = stored_magnetization.SubSlice(ind_image) // replace the original magnetization with the right image
+		m.SetArray(LoadFile(fname))
+		m.buffer_ = stored_magnetization //...and then restore the original magnetization pointer
+
+		// Load to a specific image
+
+		// data.Copy(m.buffer_.SubSlice(ind_image), LoadFile(fname)) // TODO-olafur: rework to use SetArray
 		// // More detailed assignment, in case the one liner fails
 		// stored_magnetization_ptr := m.buffer_ // We store a pointer to the original magnetization...
 		// m.buffer_ = stored_magnetization_ptr.SubSlice(ind_image)
@@ -177,7 +185,7 @@ func (m *magnetization) String() string { return util.Sprint(m.Buffer().HostCopy
 // Set the value of one cell.
 func (m *magnetization) SetCell(ix, iy, iz int, v data.Vector) {
 	r := Index2Coord(ix, iy, iz)
-	if geometry.shape != nil && !geometry.shape(r[X], r[Y], r[Z]) {
+	if Universe_geometry.shape != nil && !Universe_geometry.shape(r[X], r[Y], r[Z]) {
 		return
 	}
 	vNorm := v.Len()
@@ -204,8 +212,8 @@ func (m *magnetization) SetInShape(region Shape, conf Config, ind_image_variadic
 		region = universe
 	}
 	images_specified := len(ind_image_variadic) != 0 // Checks if the user specified images to save
-	host := m.Buffer().HostCopy()
-	stored_host_ptr := host // We store a pointer to the original magnetization...
+	host := m.Buffer().HostCopy()                    // TODO-olafur: Doesn't this need to be recycled at the end?
+	stored_host_ptr := host                          // We store a pointer to the original magnetization...
 	n := m.Mesh().Size()
 	var h [3][][][]float32
 	n_images := m.GetNImages()
@@ -232,6 +240,7 @@ func (m *magnetization) SetInShape(region Shape, conf Config, ind_image_variadic
 	}
 	host = stored_host_ptr // ...and then restore the original magnetization pointer
 	m.SetArray(host)
+	m.Reset_calc_flags()
 }
 
 // set m to config in region
@@ -280,6 +289,7 @@ func (m *magnetization) resize() {
 }
 
 // Adds random noise to the magnetization in the form of a field of scaled random vectors.
+// TODO-olafur: Change to use e.g. Uniform(1, 0, 0).Add(0.2, RandomMag())
 func (m *magnetization) AddRandomNoise(region Shape, scale float64, ind_image_variadic ...int) {
 	checkMesh()
 	scale32 := float32(scale)
@@ -293,11 +303,11 @@ func (m *magnetization) AddRandomNoise(region Shape, scale float64, ind_image_va
 	var h [3][][][]float32
 	random_generator := rand.New(rand.NewSource(time.Now().UnixNano()))
 	n_images := m.GetNImages()
-	for it_image := 0; it_image < n_images; it_image++ {
-		if images_specified && !slices.Contains(ind_image_variadic, it_image) { // Skips images that weren't specified by user
+	for ind_image := 0; ind_image < n_images; ind_image++ {
+		if images_specified && !slices.Contains(ind_image_variadic, ind_image) { // Skips images that weren't specified by user
 			continue
 		}
-		host = stored_host_ptr.SubSlice(it_image) // ...iterate over the images...
+		host = stored_host_ptr.SubSlice(ind_image) // ...iterate over the images...
 		h = host.Vectors()
 		for iz := 0; iz < n[Z]; iz++ {
 			for iy := 0; iy < n[Y]; iy++ {

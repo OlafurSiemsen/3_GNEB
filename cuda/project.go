@@ -37,9 +37,9 @@ func ProjectOnto(dst, a, b *data.Slice) {
 		N, cfg)
 }
 
-// Projects each vector in a to be orthogonal to corresponsing vector b
+// Projects each vector in a to be orthogonal to corresponsing vector in b
 // Note that this is the dot product on the configuration space of a and b
-// Assumes b in normalized
+// Assumes b is normalized
 // dst[ith cell] = a[ith cell] - (sum(dot(a[ith cell],b[ith cell])))*b[ith cell]
 func Global_Orthogonalize(dst, a, b *data.Slice) {
 	util.Argument(dst.NComp() == 3 && a.NComp() == 3 && b.NComp() == 3)

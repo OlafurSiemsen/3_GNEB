@@ -172,7 +172,7 @@ func insertImageIndex(i_filename string, ind_image int) string {
 }
 
 func imageIndexSuffix(ind_image int) string {
-	imageIndexFormat := "i%03d"
+	imageIndexFormat := "_i%03d"
 	return fmt.Sprintf(imageIndexFormat, ind_image)
 }
 

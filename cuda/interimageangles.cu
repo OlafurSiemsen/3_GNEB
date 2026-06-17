@@ -11,8 +11,8 @@ interimageangles(float* __restrict__ dst,
 	int i =  ( blockIdx.y*gridDim.x + blockIdx.x ) * blockDim.x + threadIdx.x;
 	if (i < N) {
 
-		bool volume_check = vol[i%N_cells] == 0.0f; 
-		if (volume_check)
+		bool cell_empty = vol[i%N_cells] == 0.0f; 
+		if (cell_empty)
 		{
 			// Skip the calculation for empty cells
 			dst[i] = 0.0f;
