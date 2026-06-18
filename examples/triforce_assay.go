@@ -4,12 +4,12 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"os"
 	"runtime"
 	"runtime/pprof"
-	"time"
 
 	. "github.com/mumax/3/engine"
 )
@@ -75,21 +75,12 @@ func main() {
 		-0.5 * sample_dim[0],
 		-0.5 * sample_dim[1],
 	}
-	n_images := 21
 
-	NPointsEnergyCHIP = 100
-
-	middle_image_index := (n_images - 1) / 2
-	image_index_slice := make([]int, n_images)
-	for i := range image_index_slice {
-		image_index_slice[i] = i
-	}
-	middle_index_slice := image_index_slice[1 : len(image_index_slice)-1]
-
+	N_images := 1
 	SetMesh(gridsize[0], gridsize[1], gridsize[2],
 		cellsize[0], cellsize[1], cellsize[2],
 		0, 0, 0,
-		n_images)
+		N_images)
 
 	hex_lattice_length := 300e-9
 	motif_scale := 0.6
@@ -115,6 +106,7 @@ func main() {
 
 	var motif Shape
 	var hex_triangles_geometry Shape
+	var experiment_name string
 	var shape_slice []Shape
 
 	motif_scale = 0.8
@@ -193,63 +185,34 @@ func main() {
 	SaveAs(&Universe_regions, "regions.ovf")
 	SaveAs(&Universe_geometry, "geometry.ovf")
 
-	MinimizePath = true
-	FixEndImages = true
-	{ // GNEB
-		state_list := []string{
-			"/home/olafur/go/src/github.com/mumax/3_GNEB/examples/triforce_minima/CCWvortex_minus.ovf",
-			"/home/olafur/go/src/github.com/mumax/3_GNEB/examples/triforce_minima/9_scale0.8_minimized_6.3709e-18",
-		}
-		interpolation_modes := []string{
-			"direct",
-			// "random_midpoint",
-		}
-		start := time.Now()
-		{
-			for ind_state_initial, path_state_initial := range state_list {
-				for ind_state_final, path_state_final := range state_list {
-					for _, interpolation_mode := range interpolation_modes {
-						if ind_state_initial >= ind_state_final { // GNEB commutes
-							continue
-						}
-						ClimbingImage = false
-						_, _ = path_state_final, path_state_initial
-						M.LoadFile(path_state_initial, 0)
-						M.LoadFile(path_state_final, n_images-1)
+	// regions: 1=middle, 2=bottom, 3=top right, 4=top left
+	M.SetInShape(nil, Vortex(1, -1).Transl(hex_lattice_offset[0], hex_lattice_offset[1], hex_lattice_offset[2]))
+	SnapshotAs(&M, "0_init.png")
+	SaveAs(&M, "0_init.ovf")
 
-						if interpolation_mode == "direct" {
-							InterpolateMagnetization(M, false, 0, n_images-1)
-						}
-						if interpolation_mode == "random_midpoint" {
-							M.SetInShape(nil, RandomMagSeed(rand.Int()), middle_image_index)
-							InterpolateMagnetization(M, false, 0, middle_image_index)
-							InterpolateMagnetization(M, false, middle_image_index, n_images-1)
-						}
+	Relax()
+	Minimize()
+	SnapshotAs(&M, "0_final.png")
+	SaveAs(&M, "0_final.ovf")
+	DrainOutput()
+	var N_experiments int
 
-						M.AddRandomNoise(nil, 0.1, middle_index_slice...)
+	N_experiments = 10
+	experiment_name = "random_init"
+	os.Mkdir(fmt.Sprint(OD(), experiment_name), 0777)
+	for ind_experiment := range N_experiments {
+		M.SetRegion(1, RandomMagSeed(rand.Int()))
+		SnapshotAs(&M, fmt.Sprint(experiment_name, "/", ind_experiment, "_inital.png"))
 
-						// Short run to make sure the climbing image splits the path equalishly
-						MaxIterVPO = 10000
-						GNEB_kappa = []float32{1.0}
-						ClimbingImage = false
-						FixEndImages = true
-						VPOMinimize()
-
-						// Full GNEB run with climbing image
-						MaxIterVPO = 200000
-						GNEB_kappa = []float32{1.0}
-						ClimbingImage = true
-						FixEndImages = true
-						VPOMinimize()
-
-					}
-				}
-			}
-		}
-		LogSystem()
-		elapsed := time.Since(start)
-		LogOut("Elapsed compute time, number of steps: ", elapsed, NSteps)
+		Relax()
+		Minimize()
+		t_energy := GetTotalEnergy()
+		SnapshotAs(&M, fmt.Sprint(experiment_name, "/", ind_experiment, "_minimized", fmt.Sprintf("_%.4e", t_energy), ".png"))
+		SaveAs(&M, fmt.Sprint(experiment_name, "/", ind_experiment, "_minimized", fmt.Sprintf("_%.4e", t_energy)))
+		M.LoadFile(OD() + "0_final.ovf")
 	}
+
+	LogSystem()
 }
 
 // 2D triangle with given vertices.

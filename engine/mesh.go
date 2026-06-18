@@ -33,7 +33,7 @@ func arg(msg string, test bool) {
 
 // Set the simulation mesh to Nx x Ny x Nz cells of given size.
 // Can be set only once at the beginning of the simulation.
-// TODO: dedup arguments from globals
+// TODO-olafur: dedup arguments from globals
 func SetMesh(Nx, Ny, Nz int, cellSizeX, cellSizeY, cellSizeZ float64, pbcx, pbcy, pbcz int, n_images_variadic ...int) {
 	SetBusy(true)
 	defer SetBusy(false)
