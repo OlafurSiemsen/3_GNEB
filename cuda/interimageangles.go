@@ -18,8 +18,15 @@ func InterimageAngles(dst *data.Slice, src *data.Slice, vol *data.Slice) {
 	N := src.Len() - N_cells
 	cfg := make1DConf(N)
 
-	k_interimageangles_async(dst.DevPtr(0),
-		src.DevPtr(X), src.DevPtr(Y), src.DevPtr(Z),
-		vol.DevPtr(0), N, N_cells, cfg)
+	if vol.IsNil() == true {
+		k_interimageanglesunmasked_async(dst.DevPtr(0),
+			src.DevPtr(X), src.DevPtr(Y), src.DevPtr(Z),
+			N, N_cells, cfg)
+
+	} else {
+		k_interimageanglesmasked_async(dst.DevPtr(0),
+			src.DevPtr(X), src.DevPtr(Y), src.DevPtr(Z),
+			vol.DevPtr(0), N, N_cells, cfg)
+	}
 
 }

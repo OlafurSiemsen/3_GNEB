@@ -18,19 +18,21 @@ func init() { DeclLValue("m", &M, `Reduced magnetization (unit length)`) }
 
 // Special buffered quantity to store magnetization
 // makes sure it's normalized etc.
+// TODO-olafur: Create new interface type for derived quantities
 type magnetization struct {
 	buffer_                 *data.Slice
-	n_images                int         // Number of images, used to describe the calculation currently in progress
-	E_img                   []float64   // Energy, one for each image
-	E_img_calc              bool        // True if path E_img has been calculated
-	E_derivative            []float64   // Tangential derivatives, i.e. inner product of B_eff and tangent
-	E_derivative_calc       bool        // True if tangential derivatives has been calculated
-	tangent_buffer_         *data.Slice // Contains the tangents pointing from one image to the next
-	tangent_calc            bool        // True if path tangent has been calculated
-	geodesic_tangents_calc  bool        // True if the tangents are orthogonal to m
-	Geodesic_distances      []float64   // Geodesic distance between neighbouring images
-	Geodesic_distances_calc bool        // True if path Geodesic_distances has been calculated
-	climbing_image_index    *int        // Indicates which image is currently climbing, nil means outdated
+	n_images                int                       // Number of images, used to describe the calculation currently in progress
+	E_img                   []float64                 // Energy, one for each image
+	E_img_calc              bool                      // True if path E_img has been calculated
+	E_derivative            []float64                 // Tangential derivatives, i.e. inner product of B_eff and tangent
+	E_derivative_calc       bool                      // True if tangential derivatives has been calculated
+	path_tangent_buffer_    *data.Slice               // Contains the tangents pointing from one image to the next
+	path_tangent_calc       bool                      // True if path tangent has been calculated
+	geodesic_tangents_calc  bool                      // True if the tangents are orthogonal to m
+	Geodesic_distances      []float64                 // Geodesic distance between neighbouring images
+	Geodesic_distances_calc bool                      // True if path Geodesic_distances has been calculated
+	climbing_image_index    *int                      // Indicates which image is currently climbing, nil means outdated
+	tangent_space_basis     *cuda.Tangent_space_basis // Basis that spans the tangent space of the current configuration
 }
 
 func (m *magnetization) Mesh() *data.Mesh              { return Mesh() }
@@ -38,7 +40,7 @@ func (m *magnetization) NComp() int                    { return 3 }
 func (m *magnetization) Name() string                  { return "m" }
 func (m *magnetization) Unit() string                  { return "" }
 func (m *magnetization) Buffer() *data.Slice           { return m.buffer_ } // todo: rename Gpu()?
-func (m *magnetization) GetTangentBuffer() *data.Slice { return m.tangent_buffer_ }
+func (m *magnetization) GetTangentBuffer() *data.Slice { return m.path_tangent_buffer_ }
 
 func (m *magnetization) Comp(c int) ScalarField  { return Comp(m, c) }
 func (m *magnetization) SetValue(v interface{})  { m.SetInShape(nil, v.(Config)) }
@@ -54,9 +56,10 @@ func (m *magnetization) alloc() {
 	n_images := m.GetNImages()
 	m.buffer_ = cuda.NewSlice(3, m.Mesh().Size(), n_images)
 	if n_images != 1 {
-		m.tangent_buffer_ = cuda.NewSlice(3, m.Mesh().Size(), n_images)
+		m.path_tangent_buffer_ = cuda.NewSlice(3, m.Mesh().Size(), n_images)
 		m.Geodesic_distances = make([]float64, n_images-1)
 	}
+	m.tangent_space_basis = cuda.NewTangentSpace(m.Buffer())
 	m.Reset_calc_flags()
 	m.Set(RandomMag()) // sane starting config
 }
@@ -75,9 +78,10 @@ func (m *magnetization) GetNImages() int {
 func (m *magnetization) Reset_calc_flags() {
 	m.E_img_calc = false
 	m.E_derivative_calc = false
-	m.tangent_calc = false
+	m.path_tangent_calc = false
 	m.geodesic_tangents_calc = false
 	m.Geodesic_distances_calc = false
+	m.tangent_space_basis.Fresh = false
 	// m.climbing_image_index = nil
 }
 
@@ -147,9 +151,9 @@ func (m *magnetization) LoadFiles(fname ...string) {
 	var it_indeces []int
 	n_images := m.GetNImages()
 	if n_files > n_images {
-		panic("Loading more images than there are in the path not supported (yet)")
+		panic("Loading more images than there are in the path is not supported (yet)")
 	} else {
-		it_indeces = SpreadIndex(n_files, n_images)
+		it_indeces = spreadIndex(n_files, n_images)
 	}
 	for ind_fname, ind_image := range it_indeces {
 		m.LoadFile(fname[ind_fname], ind_image)
@@ -158,7 +162,7 @@ func (m *magnetization) LoadFiles(fname ...string) {
 
 // Returns a slice of length n with its members being equally(ish) spaced indeces in
 // the range [0, max_index], inclusive
-func SpreadIndex(n_indeces int, n_images int) []int {
+func spreadIndex(n_indeces int, n_images int) []int {
 	max_index := n_images - 1
 	if n_indeces == 2 {
 		return []int{0, max_index}
@@ -326,4 +330,8 @@ func (m *magnetization) AddRandomNoise(region Shape, scale float64, ind_image_va
 	}
 	host = stored_host_ptr // ...and then restore the original magnetization pointer
 	m.SetArray(host)
+}
+
+func (magnetization *magnetization) GetTangentBasis() *cuda.Tangent_space_basis {
+	return magnetization.tangent_space_basis
 }

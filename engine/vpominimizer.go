@@ -36,6 +36,9 @@ var (
 	GNEB_kappa        []float32 = []float32{1.0} // Spring constants for the inter-image elastic forces
 	NPointsEnergyCHIP int       = 0
 
+	LastMaxDm float64
+	MaxDm     = NewScalarValue("maxDm", "T", "Maximum magnetization displacement", GetMaxDm)
+
 	//Diagnostic outputs, TODO:Remove, or at least disable for performance
 	LastMaxVPOForce     float64
 	MaxVPOForce         = NewScalarValue("maxVPOForce", "T", "Maximum VPO force, over all cells", GetMaxVPOForce)
@@ -51,8 +54,6 @@ var (
 	Vdotf               = NewScalarValue("vdotf", "", "Dot(v,f) before rotation between cotangent spaces", GetVdotF)
 	Lastvdotfrot        *data.Slice
 	Vdotfrot            = NewScalarField("vdotfrot", "", "Dot(v,f) after rotation between cotangent spaces", GetVdotFrot)
-	LastMaxDm           float64
-	MaxDm               = NewScalarValue("maxDm", "T", "Maximum magnetization displacement", GetMaxDm)
 )
 
 // Initialization of the function. Can override variables.
@@ -145,7 +146,7 @@ func (mini *VPOMinimizer) Step() {
 		CalculateTotalImageEnergies(&M)
 		gradDOTtau := make([]float64, n_images)
 		for ind_img := 0; ind_img < n_images; ind_img++ {
-			gradDOTtau[ind_img] = cellVolume() * Msat.Average() * (-float64(cuda.Dot(mini.f_n.SubSlice(ind_img), M.tangent_buffer_.SubSlice(ind_img))))
+			gradDOTtau[ind_img] = cellVolume() * Msat.Average() * (-float64(cuda.Dot(mini.f_n.SubSlice(ind_img), M.path_tangent_buffer_.SubSlice(ind_img))))
 		}
 
 		t_xs, t_ys, t_chip := Interpolate_energy_path(&M, cellVolume(), Msat.Average(), NPointsEnergyCHIP)
@@ -194,39 +195,7 @@ func (mini *VPOMinimizer) Step() {
 	data.Copy(m_n, mag_slice)
 
 	// Update m_n to m_{n+1}
-	// vtilde := cuda.Buffer(3, size, n_images)
 	cuda.Madd2(mini.vtilde, mini.v, mini.f_n, 1, float32(mini.recip2mass*VPO_stepsize))
-
-	// TODO-olafur: remove
-	// if mini.iter == 100000 || mini.iter == 50000 {
-	// 	diag_vector_slice := cuda.Buffer(3, mag_slice.Size(), mag_slice.N_images)
-	// 	diag_scalar_slice := cuda.Buffer(1, mag_slice.Size(), mag_slice.N_images)
-	// 	cuda.VecNorm(diag_scalar_slice, mini.vtilde)
-	// 	cuda.Scale(diag_scalar_slice, diag_scalar_slice, float32(VPO_stepsize))
-	// 	SaveSliceAs(diag_scalar_slice, OD()+mini.OutputDir+fmt.Sprintf("vtilde_norm_dt_iter%06d", mini.iter))
-	// 	SaveSliceAs(mini.v, OD()+mini.OutputDir+fmt.Sprintf("v_norm_iter%06d", mini.iter))
-	// 	SaveSliceAs(mag_slice, OD()+mini.OutputDir+fmt.Sprintf("mag_iter%06d", mini.iter))
-
-	// 	cuda.VecNorm(diag_scalar_slice, mini.vtilde)
-	// 	cuda.Scale(diag_scalar_slice, diag_scalar_slice, float32(VPO_stepsize))
-	// 	cuda.Sin(diag_scalar_slice, diag_scalar_slice)
-	// 	SaveSliceAs(diag_scalar_slice, OD()+mini.OutputDir+fmt.Sprintf("vtilde_norm_dt_sin_iter%06d", mini.iter))
-
-	// 	cuda.VecNorm(diag_scalar_slice, mini.vtilde)
-	// 	cuda.Scale(diag_scalar_slice, diag_scalar_slice, float32(VPO_stepsize))
-	// 	cuda.Cos(diag_scalar_slice, diag_scalar_slice)
-	// 	SaveSliceAs(diag_scalar_slice, OD()+mini.OutputDir+fmt.Sprintf("vtilde_norm_dt_cos_iter%06d", mini.iter))
-
-	// 	SetEffectiveField(diag_vector_slice, &M)
-	// 	SaveSliceAs(diag_vector_slice, OD()+mini.OutputDir+fmt.Sprintf("B_eff_iter%06d", mini.iter))
-	// 	cuda.Orthogonalize(diag_vector_slice, diag_vector_slice, mag_slice) // f_n ⟂ m_n
-	// 	SaveSliceAs(diag_vector_slice, OD()+mini.OutputDir+fmt.Sprintf("B_eff_perp_iter%06d", mini.iter))
-	// 	cuda.Mask(diag_vector_slice, Universe_geometry.Gpu())
-	// 	SaveSliceAs(diag_vector_slice, OD()+mini.OutputDir+fmt.Sprintf("B_eff_perp_masked_iter%06d", mini.iter))
-
-	// 	cuda.Recycle(diag_vector_slice)
-	// 	cuda.Recycle(diag_scalar_slice)
-	// }
 
 	cuda.RotateVectors(mag_slice, mini.vtilde, float32(VPO_stepsize))
 	// Since the magnetization of each image is changed, the quantities related to
@@ -240,7 +209,6 @@ func (mini *VPOMinimizer) Step() {
 	cuda.CotangentSpaceRotation(mini.f_n, mini.f_n, mag_slice, m_n) // f_n ⟂ m_n+1,
 
 	// Update v_n to v_{n+1}
-	// mini.f_np1 = cuda.Buffer(3, size, n_images)
 	SetEffectiveField(mini.f_np1, &M)
 	cuda.Orthogonalize(mini.f_np1, mini.f_np1, mag_slice) // f_n+1 ⟂ m_n+1
 	cuda.Mask(mini.f_np1, Universe_geometry.Gpu())
@@ -279,13 +247,6 @@ func (mini *VPOMinimizer) Step() {
 		csv_lines += fmt.Sprintf("%E\n", max_dm)
 		mini.writer_map["VPO_analytics.csv"].WriteString(csv_lines)
 	}
-	// TODO-olafur: remove
-	// if mini.iter == 100000 || mini.iter == 1000 {
-	// 	diag_scalar_slice := cuda.Buffer(1, mag_slice.Size(), mag_slice.N_images)
-	// 	cuda.VecNorm(diag_scalar_slice, m_n)
-	// 	SaveSliceAs(diag_scalar_slice, OD()+mini.OutputDir+fmt.Sprintf("m_diff_iter%06d", mini.iter))
-	// 	cuda.Recycle(diag_scalar_slice)
-	// }
 
 	mini.iter++
 	if AdvanceTime {
@@ -349,6 +310,7 @@ func VPOMinimize() {
 
 	// TODO-olafur: Abstract and funcitonalize
 	// TODO-olafur: Do something about the case of n_images=1 for the energypathchip
+	// TODO-olafur: Reconsider the variables included in the analytics
 	err := os.Mkdir(OD()+mini.OutputDir, 0755)
 	for _, it_fname := range fname_slice {
 		util.FatalErr(err)
@@ -360,14 +322,14 @@ func VPOMinimize() {
 	}
 	EnergyPathCHIP_header := GenerateCSVHeader([]string{"x", "y"}, NPointsEnergyCHIP, true)
 	mini.writer_map["EnergyPathCHIP.csv"].WriteString(EnergyPathCHIP_header)
-	VPO_Analytics_Header := GenerateCSVHeader(
+	VPO_analytics_header := GenerateCSVHeader(
 		[]string{"velocity_norm",
 			"force_norm", "force_max",
 			"force_GNEB_norm", "force_GNEB_max",
 			"v_dot_f",
 			"dM_max",
 		}, 0, false)
-	mini.writer_map["VPO_analytics.csv"].WriteString(VPO_Analytics_Header)
+	mini.writer_map["VPO_analytics.csv"].WriteString(VPO_analytics_header)
 	stepper = &mini
 	FixDt = 1
 
@@ -384,13 +346,13 @@ func VPOMinimize() {
 	if mini.iter == MaxIterVPO {
 		LogOut("Warning! Maximum iterations reached in VPO")
 	}
-	{
+	if M.GetNImages() != 1 {
 		CalculateTangents(&M)
 		ProjectTangents(&M)
 		CalculateTotalImageEnergies(&M)
 		gradDOTtau := make([]float64, M.n_images)
 		for ind_img := 0; ind_img < M.n_images; ind_img++ {
-			gradDOTtau[ind_img] = cellVolume() * Msat.Average() * (-float64(cuda.Dot(mini.f_n.SubSlice(ind_img), M.tangent_buffer_.SubSlice(ind_img))))
+			gradDOTtau[ind_img] = cellVolume() * Msat.Average() * (-float64(cuda.Dot(mini.f_n.SubSlice(ind_img), M.path_tangent_buffer_.SubSlice(ind_img))))
 		}
 
 		t_xs, t_ys, t_chip := Interpolate_energy_path(&M, cellVolume(), Msat.Average(), NPointsEnergyCHIP)

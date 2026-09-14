@@ -6,7 +6,9 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"math/rand"
 	"reflect"
+	"time"
 	"unsafe"
 
 	"github.com/mumax/3/util"
@@ -130,7 +132,7 @@ func SliceFromArray(data [][]float32, size [3]int, n_images_variadic ...int) *Sl
 func NilSlice(nComp int, size [3]int, n_images_slice ...int) *Slice {
 	n_images := ImageNumber(n_images_slice)
 	if n_images != 1 {
-		return SliceFromPtrs(size, GPUMemory, make([]unsafe.Pointer, nComp, n_images))
+		return SliceFromPtrs(size, GPUMemory, make([]unsafe.Pointer, nComp), n_images)
 	} else {
 		return SliceFromPtrs(size, GPUMemory, make([]unsafe.Pointer, nComp))
 	}
@@ -418,7 +420,7 @@ func (i_slice *Slice) SubSlice(ind_image int) *Slice {
 	if i_slice == nil {
 		return nil
 	}
-	if ind_image > i_slice.N_images { // TODO: Test this guard clause
+	if ind_image > i_slice.N_images { // TODO-olafur: Test this guard clause
 		panic(fmt.Sprintf("Image index out of bounds: %v > %v\n", ind_image, i_slice.N_images))
 	}
 	NComp := len(i_slice.ptrs)
@@ -431,3 +433,27 @@ func (i_slice *Slice) SubSlice(ind_image int) *Slice {
 	o_slice := SliceFromPtrs(i_slice.size, i_slice.memType, ptrs, 1)
 	return o_slice
 }
+
+func (i_slice *Slice) Randomize(scale float64) {
+	n := i_slice.Size()
+	t_slice := NewSlice(i_slice.NComp(), i_slice.Size(), i_slice.N_images)
+	var t_val float64
+	random_generator := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for icomp := 0; icomp < i_slice.NComp(); icomp++ {
+		for iz := 0; iz < n[Z]; iz++ {
+			for iy := 0; iy < n[Y]; iy++ {
+				for ix := 0; ix < n[X]; ix++ {
+					t_val = scale * 2 * (random_generator.Float64() - 0.5)
+					t_slice.Set(icomp, ix, iy, iz, t_val)
+				}
+			}
+		}
+	}
+	Copy(i_slice, t_slice)
+	t_slice.Free()
+}
+
+// // TODO-olafur: Re-evaluate whether this method is a good idea. Maybe not here for a reason?
+// func (i_slice *Slice) EvalTo(dst *Slice) {
+// 	Copy(dst, i_slice)
+// }

@@ -5,6 +5,7 @@ import (
 	"github.com/mumax/3/util"
 )
 
+// TODO-olafur: rename
 // Rotates v0 from the cotangent space of m0 to the cotangent space of m and
 // writes result in v
 func CotangentSpaceRotation(v, v0, m, m0 *data.Slice) {

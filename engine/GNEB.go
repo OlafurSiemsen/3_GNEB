@@ -202,7 +202,7 @@ func CalculateTangents(mag_variadic ...*magnetization) {
 	default:
 		panic("Please pass either 0 or 1 magnetization for tangent calculation")
 	}
-	if mag.tangent_calc {
+	if mag.path_tangent_calc {
 		// Tangents are already calculated
 		return
 	}
@@ -211,7 +211,7 @@ func CalculateTangents(mag_variadic ...*magnetization) {
 		CalculateTotalImageEnergies(mag)
 	}
 	E_img := mag.E_img
-	tangent_slice := mag.tangent_buffer_
+	tangent_slice := mag.path_tangent_buffer_
 	mag_slice := mag.buffer_
 	n_images := mag_slice.N_images
 
@@ -256,7 +256,7 @@ func CalculateTangents(mag_variadic ...*magnetization) {
 			cuda.Recycle(bkwd_diff_slice)
 		}
 	}
-	mag.tangent_calc = true
+	mag.path_tangent_calc = true
 	mag.geodesic_tangents_calc = false
 }
 
@@ -277,10 +277,10 @@ func ProjectTangents(mag_variadic ...*magnetization) {
 		// Tangents are already projected
 		return
 	}
-	if !mag.tangent_calc {
+	if !mag.path_tangent_calc {
 		CalculateTangents(mag)
 	}
-	tangent_slice := mag.tangent_buffer_
+	tangent_slice := mag.path_tangent_buffer_
 	mag_slice := mag.buffer_
 	n_images := mag_slice.N_images
 	// n_images := mag_slice.N_images
@@ -311,6 +311,7 @@ func CalculateGeodesicDistances(mag_variadic ...*magnetization) {
 	mag_slice := mag.buffer_
 	n_images := mag_slice.N_images
 	angle_slice := cuda.Buffer(1, mag_slice.Size(), n_images-1)
+	cuda.Zero(angle_slice)
 	cuda.InterimageAngles(angle_slice, mag_slice, Universe_geometry.Gpu())
 
 	for ind_img := 0; ind_img < n_images-1; ind_img++ {
@@ -323,7 +324,7 @@ func CalculateGeodesicDistances(mag_variadic ...*magnetization) {
 
 // Calculates the total GNEB force according to eq. 12 of https://doi.org/10.1016/j.cpc.2015.07.001.
 func CalculateGeodesicElasticForces(geodesic_elastic_force *data.Slice, kappa []float32, mag *magnetization) {
-	if !mag.tangent_calc {
+	if !mag.path_tangent_calc {
 		CalculateTangents(mag)
 	}
 	if !mag.geodesic_tangents_calc {
@@ -333,7 +334,7 @@ func CalculateGeodesicElasticForces(geodesic_elastic_force *data.Slice, kappa []
 		CalculateGeodesicDistances(mag)
 	}
 	mag_slice := mag.buffer_
-	tangent_slice := mag.tangent_buffer_
+	tangent_slice := mag.path_tangent_buffer_
 	n_images := mag_slice.N_images
 	switch len(kappa) {
 	case 1:
@@ -375,7 +376,7 @@ func GNEBForceTransformation(B_eff *data.Slice, kappa []float32, mag_variadic ..
 		panic("Please pass either 0 or 1 magnetization for GNEB calculation")
 	}
 	mag_slice := mag.buffer_
-	tangent_slice := mag.tangent_buffer_
+	tangent_slice := mag.path_tangent_buffer_
 	n_images := mag.GetNImages()
 
 	// Project energy real force orthogonal to path
@@ -408,7 +409,6 @@ func GNEBForceTransformation(B_eff *data.Slice, kappa []float32, mag_variadic ..
 	if ClimbingImage == true {
 		climbing_force(B_eff, mag, *mag.climbing_image_index)
 	}
-	// LogSlice(energy_gradient, "F_GNEB", NSteps)
 	// Cleanup
 	cuda.Recycle(elastic_force_slice)
 }
@@ -519,6 +519,8 @@ func (chip *CHIP) evaluate_on_domain(n_steps int, add_nodes bool) ([]float64, []
 	return xs, chip.evaluate(xs, false)
 }
 
+// TODO-olafur: Generalize for varying Msat
+// TODO-olafur: Does it make sense to scale the final gradDOTtau by the cell volume?
 func Interpolate_energy_path(mag *magnetization, cell_volume float64, M_sat float64, n_points int) ([]float64, []float64, *CHIP) {
 	mag_slice := mag.Buffer()
 	size := mag_slice.Size()
@@ -530,7 +532,7 @@ func Interpolate_energy_path(mag *magnetization, cell_volume float64, M_sat floa
 	CalculateGeodesicDistances(&M)
 	gradDOTtau := make([]float64, n_images)
 	for ind_img := 0; ind_img < n_images; ind_img++ {
-		gradDOTtau[ind_img] = cell_volume * M_sat * (-float64(cuda.Dot(grad_slice.SubSlice(ind_img), M.tangent_buffer_.SubSlice(ind_img))))
+		gradDOTtau[ind_img] = cell_volume * M_sat * (-float64(cuda.Dot(grad_slice.SubSlice(ind_img), M.path_tangent_buffer_.SubSlice(ind_img))))
 	}
 	chip := New_CHIP(M.Geodesic_distances, M.E_img, gradDOTtau) // TODO-olafur: Make this refer to a field in magnetization
 	o_xs, o_ys := chip.evaluate_on_domain(n_points, true)

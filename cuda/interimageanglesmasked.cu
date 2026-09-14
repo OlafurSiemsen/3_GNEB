@@ -3,14 +3,14 @@
 
 // Calculates the angle between corresponging vectors in neighbouring images in
 // src, copying the angles into dst
+// Skips cells that are outside the sample
 extern "C" __global__ void
-interimageangles(float* __restrict__ dst,
+interimageanglesmasked(float* __restrict__ dst,
 				 float* __restrict__ vec_x, float* __restrict__ vec_y, float* __restrict__ vec_z, 
 				 float* __restrict__ vol, int N, int N_cells) {
 
 	int i =  ( blockIdx.y*gridDim.x + blockIdx.x ) * blockDim.x + threadIdx.x;
 	if (i < N) {
-
 		bool cell_empty = vol[i%N_cells] == 0.0f; 
 		if (cell_empty)
 		{

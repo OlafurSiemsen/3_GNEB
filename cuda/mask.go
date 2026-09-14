@@ -8,6 +8,9 @@ import (
 // Mask to zero where volume is zero.
 // see file://./mask.cu
 func Mask(vec, vol *data.Slice) {
+	if vol.IsNil() {
+		return
+	}
 	n_images := vec.N_images
 	if n_images != 1 {
 		for it_image := 0; it_image < n_images; it_image++ {

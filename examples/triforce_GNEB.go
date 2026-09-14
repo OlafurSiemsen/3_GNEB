@@ -189,7 +189,7 @@ func main() {
 	}
 
 	SetGeom(hex_triangles_geometry)
-	SnapshotAs(&M, "geometry.png")
+	SnapshotAs(&M, "geometry.png", 0)
 	SaveAs(&Universe_regions, "regions.ovf")
 	SaveAs(&Universe_geometry, "geometry.ovf")
 

@@ -236,7 +236,7 @@ func PrintSlice(i_slice *data.Slice, preamble ...any) {
 	n_images := i_slice.N_images
 	host_slice := i_slice.HostCopy()
 	if len(preamble) != 0 {
-		fmt.Println(preamble)
+		fmt.Println(preamble...)
 	} else {
 		fmt.Println("")
 	}
@@ -254,33 +254,7 @@ func PrintSlice(i_slice *data.Slice, preamble ...any) {
 	}
 }
 
-// func LogSlice(i_slice *data.Slice, variable_name string, preamble ...any) {
-// 	gridsize := i_slice.Size()
-// 	n_images := i_slice.N_images
-// 	host_slice := i_slice.HostCopy()
-// 	comp_name_list := []string{"x", "y", "z"}
-// 	t_msg := "// "
-// 	if len(preamble) != 0 {
-// 		t_msg = t_msg + fmt.Sprintln(preamble...)
-// 	} else {
-// 	}
-// 	for iIm := 0; iIm < n_images; iIm++ {
-// 		for iComp := 0; iComp < i_slice.NComp(); iComp++ {
-// 			t_msg = t_msg + fmt.Sprintf("%s%si%02d", variable_name, comp_name_list[iComp], iIm)
-// 			for iZ := 0; iZ < gridsize[2]; iZ++ {
-// 				for iY := 0; iY < gridsize[1]; iY++ {
-// 					for iX := 0; iX < gridsize[0]; iX++ {
-// 						t_msg = t_msg + fmt.Sprintf("	%E", host_slice.Get(iComp, iX, iY, iZ, iIm))
-// 						// log2File(strconv.FormatFloat(host_slice.Get(iComp, iX, iY, iZ, iIm), 'f', 6, 32) + "	")
-// 					}
-// 				}
-// 			}
-// 			t_msg = t_msg + "\n"
-// 		}
-// 	}
-// 	log2File(t_msg)
-// }
-
+// TODO-olafur: Move this to a data/util.go file?
 func LogSlice(slice1 *data.Slice, log_mode bool, print_mode bool, preamble ...any) {
 	if log_mode == false && print_mode == false {
 		panic("That doesn't do anything.")
@@ -291,7 +265,7 @@ func LogSlice(slice1 *data.Slice, log_mode bool, print_mode bool, preamble ...an
 	host_slice1 := slice1.HostCopy()
 	var t_msg string
 	if len(preamble) != 0 {
-		t_msg = fmt.Sprint(preamble) + "\n"
+		t_msg = fmt.Sprint(preamble...) + "\n"
 	} else {
 		t_msg = "\n"
 	}
@@ -358,7 +332,7 @@ func CompareSlices2Log(slice1 *data.Slice, slice2 *data.Slice, log_mode bool, pr
 	tol := 1e-6
 	var t_msg string
 	if len(preamble) != 0 {
-		t_msg = fmt.Sprint(preamble) + "\n"
+		t_msg = fmt.Sprint(preamble...) + "\n"
 	} else {
 		t_msg = "\n"
 	}
@@ -409,7 +383,7 @@ func CompareSlices(slice1 *data.Slice, slice2 *data.Slice, log_only bool, preamb
 	tol := 1e-6
 	var t_msg string
 	if len(preamble) != 0 {
-		t_msg = fmt.Sprint(preamble)
+		t_msg = fmt.Sprint(preamble...)
 	} else {
 		t_msg = "\n"
 	}
@@ -489,20 +463,22 @@ const (
 // TODO-olafur: Split this into a 'generic' and a 'column name' version
 func GenerateCSVHeader(var_names []string, var_num int, csv_system_info bool) string {
 	o_string := ""
-	o_string += fmt.Sprintln("# Gridsize=", Mesh().Size())
-	o_string += fmt.Sprintln("# CellSize=", Mesh().CellSize(), Mesh().Unit)
-	o_string += fmt.Sprintln("# PBC=", Mesh().PBC())
-	o_string += fmt.Sprintln("# N_Images=", M.GetNImages())
-	o_string += fmt.Sprintln("# Msat=", Msat.Average(), Msat.Unit())
-	o_string += fmt.Sprintln("# Aex=", Aex.Average(), Aex.Unit())
-	o_string += fmt.Sprintln("# Alpha=", Alpha.Average(), Alpha.Unit())
-	o_string += fmt.Sprintln("# Ku1=", Ku1.Average(), Ku1.Unit())
-	o_string += fmt.Sprintln("# Ku2=", Ku2.Average(), Ku2.Unit())
-	o_string += fmt.Sprintln("# AnisU=", AnisU.Average(), AnisU.Unit())
-	o_string += fmt.Sprintln("# B_ext=", B_ext.Average(), B_ext.Unit())
-	o_string += fmt.Sprintln("# Dbulk=", Dbulk.Average(), Dbulk.Unit())
-	o_string += fmt.Sprintln("# Dind=", Dind.Average(), Dind.unit)
-	o_string += fmt.Sprintln("# GNEB_kappa=", GNEB_kappa)
+	if csv_system_info == true {
+		o_string += fmt.Sprintln("# Gridsize=", Mesh().Size())
+		o_string += fmt.Sprintln("# CellSize=", Mesh().CellSize(), Mesh().Unit)
+		o_string += fmt.Sprintln("# PBC=", Mesh().PBC())
+		o_string += fmt.Sprintln("# N_Images=", M.GetNImages())
+		o_string += fmt.Sprintln("# Msat=", Msat.Average(), Msat.Unit())
+		o_string += fmt.Sprintln("# Aex=", Aex.Average(), Aex.Unit())
+		o_string += fmt.Sprintln("# Alpha=", Alpha.Average(), Alpha.Unit())
+		o_string += fmt.Sprintln("# Ku1=", Ku1.Average(), Ku1.Unit())
+		o_string += fmt.Sprintln("# Ku2=", Ku2.Average(), Ku2.Unit())
+		o_string += fmt.Sprintln("# AnisU=", AnisU.Average(), AnisU.Unit())
+		o_string += fmt.Sprintln("# B_ext=", B_ext.Average(), B_ext.Unit())
+		o_string += fmt.Sprintln("# Dbulk=", Dbulk.Average(), Dbulk.Unit())
+		o_string += fmt.Sprintln("# Dind=", Dind.Average(), Dind.unit)
+		o_string += fmt.Sprintln("# GNEB_kappa=", GNEB_kappa)
+	}
 	o_string = o_string + "iteration,"
 	n_digits := int(math.Ceil(math.Log10(float64(var_num))))
 	csv_header_format := fmt.Sprintf("%%v%%0%dd,", n_digits)

@@ -31,7 +31,7 @@ func Buffer(nComp int, size [3]int, n_images_variadic ...int) *data.Slice {
 
 	ptrs := make([]unsafe.Pointer, nComp)
 
-	// re-use as many buffers as possible form our stack
+	// re-use as many buffers as possible from our stack
 	N := prod(size) * n_images
 	pool := buf_pool[N]
 	nFromPool := iMin(nComp, len(pool))
